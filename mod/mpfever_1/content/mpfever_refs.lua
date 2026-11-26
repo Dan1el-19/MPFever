@@ -1359,6 +1359,16 @@ function R.contentHash(hashStr, dumpFn)
 		if R.loopErrors[cname] then return "cannot list " .. cname end
 		return n .. "/" .. acc
 	end
+	if R.hashFast then
+		part("counts", function()
+			return #R.entitiesWith("CONSTRUCTION") .. "/" .. #R.entitiesWith("BASE_EDGE") .. "/"
+				.. #R.entitiesWith("TRANSPORT_VEHICLE") .. "/" .. #R.entitiesWith("TOWN_BUILDING") .. "/"
+				.. #R.entitiesWith("STATION") .. "/" .. #R.entitiesWith("LINE")
+		end)
+		part("stations", function() return count("STATION") end)
+		part("lines", function() return count("LINE", R.lineText) end)
+		return parts
+	end
 	local function r1(v) return v and string.format("%.0f", v) or "?" end
 	-- (the edges' readers, once per check: the decorations' list and its text, the lanes' modes)
 	local function edgeDecoList(c)
@@ -1452,10 +1462,19 @@ function R.contentHash(hashStr, dumpFn)
 			return ok and t and (tostring(t.time) .. "/" .. tostring(t.commandIndex) .. "/" .. tostring(t.subIndex)) or "-"
 		end)
 	end)
-	part("vehicles", function() return count("TRANSPORT_VEHICLE", function(e)
-		local c = comp(e, "MOVE_PATH")
-		return c and dumpFn(c.dyn) or "depot"
-	end) end)
+	part("vehicles", function()
+		if os.getenv("MPFEVER_VEH_LIGHT") == "1" then
+			return count("TRANSPORT_VEHICLE", function(e)
+				local tv = comp(e, "TRANSPORT_VEHICLE")
+				if not tv then return nil end
+				return tostring(tv.state) .. "/" .. tostring(tv.stopIndex) .. "/" .. tostring(tv.line)
+			end)
+		end
+		return count("TRANSPORT_VEHICLE", function(e)
+			local c = comp(e, "MOVE_PATH")
+			return c and dumpFn(c.dyn) or "depot"
+		end)
+	end)
 	part("townBuildings", function() return count("TOWN_BUILDING") end)
 	part("persons", function() return count("SIM_PERSON") end)
 	-- ((0.7.13) and one person in eight of them, by where it is and where it goes: a diagnostic, see R.personsDigest)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -922,6 +922,25 @@ namespace MPFever
             try { if (proc != null && !proc.HasExited) proc.Kill(); } catch { }
         }
 
+        internal static bool PrivateFastEnabled =>
+            Environment.GetEnvironmentVariable("MPFEVER_PRIVATE_FAST") != "0";
+
+        internal static void ApplyPrivateFastEnv(System.Collections.Specialized.StringDictionary env, bool isAutotest)
+        {
+            if (isAutotest || !PrivateFastEnabled || env == null) return;
+            void SetDefault(string k, string v)
+            {
+                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(k)) && string.IsNullOrEmpty(env[k])) env[k] = v;
+            }
+            SetDefault("MPFEVER_PRIVATE_FAST", "1");
+            SetDefault("MPFEVER_SDUMP", "0");
+            SetDefault("MPFEVER_SDUMPAFTER", "0");
+            SetDefault("MPFEVER_INDDIGEST", "0");
+            SetDefault("MPFEVER_STEPSDIGEST", "0");
+            SetDefault("MPFEVER_PERSONDIGEST", "0");
+            SetDefault("MPFEVER_VEH_LIGHT", "1");
+        }
+
         public void Launch(string gameDir)
         {
             // (0.8.1) a new game finds the mods as they are now: an old copy moved out no longer needs a restart
@@ -951,6 +970,7 @@ namespace MPFever
             if (epic != null) psi.Arguments += " " + epic;
             if (AutoSave != null) psi.EnvironmentVariables["MPFEVER_SAVE"] = AutoSave;
             GameInstall.DiagEnv(psi.EnvironmentVariables);
+            ApplyPrivateFastEnv(psi.EnvironmentVariables, AutoSave != null || Options.Disabled);
             // (0.7.10) this player's settings the native module reads at the game's start (none since 0.7.13, see Options.NativeEnv)
             foreach (var kv in Options.NativeEnv()) psi.EnvironmentVariables[kv.Key] = kv.Value;
             // (0.8.6) the autotests: the session settings their environment leaves unset, at the players' defaults (see Options.TestDefaults)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -278,6 +278,22 @@ namespace MPFever
         readonly Queue<double> hashCostRecent = new Queue<double>();
         readonly Dictionary<int, double> hashCostOf = new Dictionary<int, double>();
         volatile bool hashApart;
+        // Private-fast fork ("Złoty Środek"): two-level checks (Fast Pulse + Structural Audit), Option B drift policy, lightweight perf stats
+        const double PrivateFastEverySeconds = 18;
+        const double PrivateAuditEverySeconds = 50;
+        const double PrivateAuditApartSeconds = 15;
+        const double PrivateDriftWarnSeconds = 180;
+        const double PerfLogEverySeconds = 300;
+        readonly HashSet<int> hashIsFast = new HashSet<int>();
+        int auditHashN;
+        volatile bool hardApart;
+        volatile bool forceAuditNext;
+        double lastDriftWarnAt = -1e9;
+        readonly object perfGate = new object();
+        int perfFastCount, perfAuditCount, perfDrifts, perfActionsBase;
+        double perfFastSum, perfAuditSum, perfMaxCost, perfWindowAt;
+        double perfAvgFastMs = -1, perfAvgAuditMs = -1;
+        bool PrivateFastActive => !autotest && GameLink.PrivateFastEnabled;
 
         /// <summary>(0.8.17) The interval between two checks: see HashMaxSeconds.</summary>
         internal static double HashInterval(IEnumerable<double> recentCosts, bool apart, string env)
@@ -292,6 +308,40 @@ namespace MPFever
         {
             double[] recent; lock (hashes) recent = hashCostRecent.ToArray();
             return HashInterval(recent, hashApart, Environment.GetEnvironmentVariable("MPFEVER_HASHADAPT"));
+        }
+
+        void MaybeLogPerf()
+        {
+            if (!PrivateFastActive || !started) return;
+            string line = null;
+            lock (perfGate)
+            {
+                if (perfWindowAt <= 0) { perfWindowAt = Now; perfActionsBase = actsRelayed; return; }
+                if (Now - perfWindowAt < PerfLogEverySeconds) return;
+                int fastN = perfFastCount, auditN = perfAuditCount, dr = perfDrifts;
+                double fastAvg = fastN > 0 ? (perfFastSum / fastN) * 1000.0 : 0;
+                double auditAvg = auditN > 0 ? (perfAuditSum / auditN) * 1000.0 : 0;
+                double maxMs = perfMaxCost * 1000.0;
+                int acts = Math.Max(0, actsRelayed - perfActionsBase);
+                perfFastCount = 0; perfAuditCount = 0; perfFastSum = 0; perfAuditSum = 0; perfMaxCost = 0; perfDrifts = 0;
+                perfActionsBase = actsRelayed; perfWindowAt = Now;
+                if (fastN > 0 || auditN > 0)
+                    line = string.Format(CultureInfo.InvariantCulture,
+                        "Perf (5 min): fast avg {0:0} ms ({1}x) | audit avg {2:0} ms ({3}x, max {4:0} ms) | actions: {5} | drifts: {6}",
+                        fastAvg, fastN, auditAvg, auditN, maxMs, acts, dr);
+            }
+            if (line != null) Log.Dim(line);
+        }
+
+        string PerfSyncSubtitle(string fallback)
+        {
+            if (!PrivateFastActive) return fallback;
+            double fMs, aMs;
+            lock (perfGate) { fMs = perfAvgFastMs; aMs = perfAvgAuditMs; }
+            if (fMs < 0 && aMs < 0) return fallback;
+            string fTxt = fMs >= 0 ? string.Format(CultureInfo.InvariantCulture, "{0:0} ms fast", fMs) : "— fast";
+            string aTxt = aMs >= 0 ? string.Format(CultureInfo.InvariantCulture, "{0:0} ms audit", aMs) : "— audit";
+            return "avg " + fTxt + " · " + aTxt;
         }
 
         readonly TextBox nameBox = new TextBox { Text = SavedName() };
@@ -320,6 +370,7 @@ namespace MPFever
         readonly ModernButton x2Btn = new ModernButton(ButtonKind.Segment) { Text = "x2", Enabled = false };
         readonly ModernButton x4Btn = new ModernButton(ButtonKind.Segment) { Text = "x4", Enabled = false };
         readonly ModernButton detBtn = new ModernButton(ButtonKind.Ghost) { Enabled = false };
+        readonly ModernButton checkNowBtn = new ModernButton(ButtonKind.Ghost) { Enabled = false };
         readonly ModernButton langBtn = new ModernButton(ButtonKind.Ghost) { Globe = true };
         readonly RichTextBox logBox = new RichTextBox { ReadOnly = true, BorderStyle = BorderStyle.None, ScrollBars = RichTextBoxScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono(9f), BackColor = Theme.Surface, ForeColor = Theme.Text, DetectUrls = false, WordWrap = true };
         readonly Label status = new Label { AutoSize = false, AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Text = T("Prêt.", "Ready."), ForeColor = Theme.Muted };
@@ -482,6 +533,12 @@ namespace MPFever
             x2Btn.Click += (s, e) => SetSpeed(2, T("hôte", "host"));
             x4Btn.Click += (s, e) => SetSpeed(4, T("hôte", "host"));
             detBtn.Click += (s, e) => new Thread(RunDeterminism) { IsBackground = true }.Start();
+            checkNowBtn.Click += (s, e) =>
+            {
+                if (relay == null || !started || resyncing || detRunning) return;
+                forceAuditNext = true;
+                Log.Dim("Manual structural audit requested.");
+            };
 
             SessionDisk.Said += OnDiskFull;
             Shown += (s, e) => CheckUpdateThenInit();
@@ -514,8 +571,9 @@ namespace MPFever
             autoLaunchBox.BackColor = Color.Transparent;
             pauseBtn.Text = "❚❚  " + T("Pause", "Pause");
             detBtn.Text = T("Test déterminisme", "Determinism test");
+            checkNowBtn.Text = L.Code == "pl" ? "Sprawdź teraz" : "Check now";
             langBtn.Text = L.Name + "  ▾";
-            foreach (var b in new[] { hostBtn, joinBtn, localBtn, startBtn, againBtn, launchBtn, pauseBtn, x1Btn, x2Btn, x4Btn, detBtn, langBtn }) b.ResetFont();
+            foreach (var b in new[] { hostBtn, joinBtn, localBtn, startBtn, againBtn, launchBtn, pauseBtn, x1Btn, x2Btn, x4Btn, detBtn, checkNowBtn, langBtn }) b.ResetFont();
             logBox.Font = Theme.Mono(9f);
 
             header = new HeaderBar(T("Multijoueur pour Transport Fever 3", "Multiplayer for Transport Fever 3"), "v" + Version, langBtn);
@@ -592,7 +650,8 @@ namespace MPFever
             var folderBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Dossier des journaux", "Logs folder") }.Fit();
             var reportBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Signaler un problème", "Report a problem") }.Fit();
             reportBtn.Click += (s, e) => new Thread(() => Report(false)) { IsBackground = true, Name = "Report" }.Start();
-            foreach (var b in new[] { reportBtn, folderBtn, copyBtn, clearBtn }) { b.Margin = new Padding(S(6), 0, 0, 0); tools.Controls.Add(b); }
+            checkNowBtn.Fit();
+            foreach (var b in new[] { checkNowBtn, reportBtn, folderBtn, copyBtn, clearBtn }) { b.Margin = new Padding(S(6), 0, 0, 0); tools.Controls.Add(b); }
             logHead.Controls.Add(logTitle);
             logHead.Controls.Add(tools);
             logCard.Controls.Add(logBox);
@@ -929,12 +988,16 @@ namespace MPFever
             int open = s.IndexOf('(');
             string why = open >= 0 ? s.Substring(open + 1).TrimEnd(')') : "";
             string total = desyncs > 0 ? F("{0} désynchronisation(s) au total", "{0} desync(s) in total", desyncs) : T("aucune désynchronisation", "no desync so far");
+            string driftSub = (PrivateFastActive && !ShouldAutoResyncDrift(true, Environment.GetEnvironmentVariable("MPFEVER_DRIFTRESYNC")))
+                ? ("Drift: " + (string.IsNullOrEmpty(syncParts) ? why : syncParts) + " (warn only)")
+                : why;
             if (resyncing) syncTile.Set(T("Resynchro…", "Resyncing…"), T("rechargement de la partie de l'hôte", "reloading the host's game"), Theme.Info, true);
             else if (!host) syncTile.Set("—", client ? T("vérifiée par l'hôte", "checked by the host") : "", Theme.Faint);
-            else if (syncState == 1) syncTile.Set(T("Synchrone", "In sync"), total, Theme.Success, true);
-            else if (syncState == 2) syncTile.Set(T("Légère dérive", "Slight drift"), why, Theme.Warning, true);
+            else if (syncState == 1) syncTile.Set(T("Synchrone", "In sync"), PerfSyncSubtitle(total), Theme.Success, true);
+            else if (syncState == 2) syncTile.Set(T("Légère dérive", "Slight drift"), driftSub, Theme.Warning, true);
             else if (syncState == 0) syncTile.Set("—", T("pas encore vérifiée", "not checked yet"), Theme.Faint);
             else syncTile.Set(T("Désynchronisé", "Out of sync"), why, Theme.Danger, true);
+            checkNowBtn.Enabled = host && st && !resyncing && !detRunning;
 
             // speed buttons show what is in effect
             pauseBtn.Active = host && st && paused;
@@ -2942,7 +3005,9 @@ namespace MPFever
             hostSaveSha = ""; hostSaveState = ""; hostSaveLocal = null;   // (a lobby opened again is looked at again)
             hashN = 0; syncText = "—"; actsRelayed = actRefused = actFails = desyncs = 0;
             lock (hashes) { hashCostRecent.Clear(); hashCostOf.Clear(); }
-            hashApart = false;
+            lock (hashes) hashIsFast.Clear();
+            hashApart = false; hardApart = false; forceAuditNext = false; auditHashN = 0; lastDriftWarnAt = -1e9;
+            lock (perfGate) { perfFastCount = 0; perfAuditCount = 0; perfFastSum = 0; perfAuditSum = 0; perfMaxCost = 0; perfDrifts = 0; perfActionsBase = 0; perfWindowAt = 0; perfAvgFastMs = -1; perfAvgAuditMs = -1; }
             resyncing = false; resyncDropping = false; resyncSending = false; resyncWaiting.Clear(); ignoredParts.Clear(); unmeasuredParts.Clear(); postResyncHashN = -1; driftSince = -1; diffStreak = 0; lastDiffKeys = ""; stepsDumped = false; lock (partStreak) partStreak.Clear();
             ClearJoinPending(); riskyAnnounced = "";
             lock (reviewing) reviewing.Clear();
@@ -4870,15 +4935,31 @@ namespace MPFever
             // (0.7.7: after a difference, this check's dump whole on every game, see WantsWorldDump; MPFEVER_SDUMPAFTER=0: not)
             string world = "";
             if (worldDumpNext) { worldDumpNext = false; if (Environment.GetEnvironmentVariable("MPFEVER_SDUMPAFTER") != "0") world = ",[\"world\"]=true"; }
+            if (PrivateFastActive && Environment.GetEnvironmentVariable("MPFEVER_SDUMPAFTER") != "1") world = "";
+            string an = PrivateFastActive ? ",[\"an\"]=" + Interlocked.Increment(ref auditHashN) : "";
             if (p.HasValue && MaxClock() >= p.Value)
             {
                 // the games may have stopped a batch apart: the check is taken at the latest of their times (the others
                 // catch up to it)
                 long at; lock (clocks) at = Math.Max(p.Value, clocks.Count == 0 ? 0 : clocks.Values.Max(c => c.T));
-                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + at + ",[\"paused\"]=true" + world + "}"));
+                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + at + ",[\"paused\"]=true" + an + world + "}"));
             }
             else
-                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + FutureStamp() + world + "}"));
+                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + FutureStamp() + an + world + "}"));
+        }
+
+        void RequestHashFast()
+        {
+            int n = Interlocked.Increment(ref hashN);
+            lock (hashes) { hashes[n] = new Dictionary<string, Dictionary<object, object>>(); hashIsFast.Add(n); }
+            long? p; lock (sessionGate) p = pauseAt;
+            if (p.HasValue && MaxClock() >= p.Value)
+            {
+                long at; lock (clocks) at = Math.Max(p.Value, clocks.Count == 0 ? 0 : clocks.Values.Max(c => c.T));
+                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + at + ",[\"paused\"]=true,[\"fast\"]=true}"));
+            }
+            else
+                HostSend(Msg.Make("hash", hostName, "{[\"n\"]=" + n + ",[\"at\"]=" + FutureStamp() + ",[\"fast\"]=true}"));
         }
 
         // (0.7.7) set by a check that found the simulation apart: the next check's dump is whole on every game
@@ -4891,7 +4972,7 @@ namespace MPFever
 
         void HostLoop(int gen)
         {
-            double lastHash = Now, lastSession = Now, lastStatus = 0;
+            double lastHash = Now, lastAudit = Now, lastSession = Now, lastStatus = 0;
             int actsAtHash = actsRelayed;
             while (gen == sessionGen)
             {
@@ -4909,6 +4990,7 @@ namespace MPFever
 
                 if (Now - lastSession > 3) { lastSession = Now; BroadcastSession(); }   // late joiners and lost messages
                 HostAutosaveTick();   // (0.7.7, a player's own game hosting: the session's autosave at a pause of every game)
+                MaybeLogPerf();
                 bool paused; long? pausedAt; lock (sessionGate) { paused = pauseAt.HasValue; pausedAt = pauseAt; }
                 // paused: builds and actions still apply, so the games are checked when actions went through since the last
                 // check, once every game has stopped (issue #12: 9 minutes of builds in a pause went unchecked)
@@ -4917,9 +4999,24 @@ namespace MPFever
                 bool allStopped; lock (clocks) allStopped = clocks.Count > 0 && clocks.Values.Select(c => c.T).Distinct().Count() == 1;
                 bool pausedWork = paused && actsRelayed != actsAtHash && pausedAt.HasValue && MaxClock() >= pausedAt.Value
                     && allStopped && Now - lastActRelayed > 5;
-                if (started && (!paused || pausedWork) && !detRunning && !resyncing && Now - lastHash > (paused ? HashEverySeconds : CurrentHashInterval()))
+                if (started && (!paused || pausedWork || forceAuditNext) && !detRunning && !resyncing)
                 {
-                    lastHash = Now; actsAtHash = actsRelayed; RequestHash();
+                    if (PrivateFastActive && !paused)
+                    {
+                        double auditEvery = hardApart ? PrivateAuditApartSeconds : PrivateAuditEverySeconds;
+                        if (forceAuditNext || Now - lastAudit >= auditEvery)
+                        {
+                            forceAuditNext = false; lastAudit = Now; lastHash = Now; actsAtHash = actsRelayed; RequestHash();
+                        }
+                        else if (Now - lastHash >= PrivateFastEverySeconds)
+                        {
+                            lastHash = Now; actsAtHash = actsRelayed; RequestHashFast();
+                        }
+                    }
+                    else if (forceAuditNext || Now - lastHash > (paused ? HashEverySeconds : CurrentHashInterval()))
+                    {
+                        forceAuditNext = false; lastAudit = Now; lastHash = Now; actsAtHash = actsRelayed; RequestHash();
+                    }
                 }
             }
         }
@@ -5509,7 +5606,8 @@ namespace MPFever
             if (t == null || !t.TryGetValue("n", out var nv) || !(nv is double nd)) return;
             int n = (int)nd;
             var parts = t.TryGetValue("parts", out var p) ? p as Dictionary<object, object> : null;
-            if (t.TryGetValue("cost", out var cost) && cost is double c && c > 0.1) Log.Warn(F("{0} : empreinte coûteuse ({1:0.00} s)", "{0}: expensive checksum ({1:0.00} s)", m.From, c));
+            double warnCost = PrivateFastActive ? 0.25 : 0.1;
+            if (t.TryGetValue("cost", out var cost) && cost is double c && c > warnCost) Log.Warn(F("{0} : empreinte coûteuse ({1:0.00} s)", "{0}: expensive checksum ({1:0.00} s)", m.From, c));
             // host authority: the host's values at this checkpoint go to every other game, which corrects itself
             if (m.From == hostName && t.TryGetValue("auth", out var av) && av is Dictionary<object, object> auth)
             {
@@ -5520,6 +5618,8 @@ namespace MPFever
             Dictionary<string, Dictionary<object, object>> got = null;
             int expected; lock (players) expected = players.Count;
             Dictionary<string, double> turns = null;
+            bool isFast = false;
+            double checkCost = 0;
             lock (hashes)
             {
                 if (!hashes.TryGetValue(n, out var d)) return;
@@ -5529,10 +5629,13 @@ namespace MPFever
                 hashCostOf[n] = Math.Max(hashCostOf.TryGetValue(n, out var hc) ? hc : 0, myCost);
                 if (d.Count >= expected)
                 {
+                    checkCost = hashCostOf[n];
+                    isFast = hashIsFast.Remove(n);
                     if (hashCostOf[n] > 0) { hashCostRecent.Enqueue(hashCostOf[n]); while (hashCostRecent.Count > HashCostWindow) hashCostRecent.Dequeue(); }
                     hashCostOf.Remove(n);
                 }
                 foreach (var old in hashCostOf.Keys.Where(k => k < n - 20).ToList()) hashCostOf.Remove(old);
+                foreach (var old in hashIsFast.Where(k => k < n - 20).ToList()) hashIsFast.Remove(old);
                 // (a check taken in a pause: the turns of the paused builds and actions each game had applied, see below)
                 if (t.TryGetValue("ptd", out var ptv) && ptv is double ptd)
                 {
@@ -5544,6 +5647,16 @@ namespace MPFever
                 foreach (var old in hashTurns.Keys.Where(k => k < n - 20).ToList()) hashTurns.Remove(old);
             }
             if (got == null) return;
+            if (checkCost > 0 || (isFast && turns == null))
+            {
+                lock (perfGate)
+                {
+                    if (perfWindowAt <= 0) { perfWindowAt = Now; perfActionsBase = actsRelayed; }
+                    if (isFast) { perfFastCount++; perfFastSum += checkCost; perfAvgFastMs = (perfFastSum / perfFastCount) * 1000.0; }
+                    else { perfAuditCount++; perfAuditSum += checkCost; perfAvgAuditMs = (perfAuditSum / perfAuditCount) * 1000.0; }
+                    if (checkCost > perfMaxCost) perfMaxCost = checkCost;
+                }
+            }
             // In a pause every game applies the builds and actions in the host's turns, each when it has them: a check taken
             // while one game had applied a turn the other had not yet compared two different moments, and a player building on
             // and on in a pause kept the difference there check after check (nodeConfigs, then a reload: most likely 2026-10-25
@@ -5622,7 +5735,7 @@ namespace MPFever
             // (0.8.3) the steps' digests differ: the games' entities parted within the last minute; every game keeps its drift
             // rings at the next check (forced, as after a difference), while they still hold the step where it began. Once per
             // run. MPFEVER_STEPSDUMP=0: not asked for
-            if (!stepsDumped && diag.Any(d => DiffKey(d) == "stepsDigest") && Environment.GetEnvironmentVariable("MPFEVER_STEPSDUMP") != "0")
+            if (!stepsDumped && diag.Any(d => DiffKey(d) == "stepsDigest") && !PrivateFastActive && Environment.GetEnvironmentVariable("MPFEVER_STEPSDUMP") != "0")
             {
                 stepsDumped = true;
                 worldDumpNext = true;
@@ -5633,6 +5746,9 @@ namespace MPFever
             // (0.7.7) a difference of the simulation (not money, which the host corrects, nor the names): the next check asks every
             // game for the whole dump, every vehicle with its whole state, at the same moment (see RequestHash, SDUMP.forceWorld)
             if (diffs.Any(d => WantsWorldDump(DiffKey(d)))) worldDumpNext = true;
+            // Fast Pulse detected a hard counter difference (counts, lines, stations...): escalate immediately to a full Structural Audit
+            if (isFast && diffs.Any(d => !CorrectedParts.Contains(DiffKey(d)) && !DriftParts.Contains(DiffKey(d))))
+                forceAuditNext = true;
             // the expensive parts take turns (issue #32): a part checked at this checkpoint is equal or different (its streak:
             // how many of its own checks in a row differed); a part not checked keeps its state until it is checked again
             var nowDiff = new HashSet<string>(diffs.Select(d => DiffKey(d)));
@@ -5649,6 +5765,7 @@ namespace MPFever
             CheckResync(pending, n);
             // (0.8.17) games apart (a difference now, or one not checked again yet): the next check at the usual 10 s
             hashApart = diffs.Count > 0 || pending.Count > 0 || worldDumpNext;
+            hardApart = pending.Any(k => !DriftParts.Contains(k));
             // (a difference not checked again at this checkpoint: the sync state stays as it was)
             if (diffs.Count == 0 && pending.Count > 0) return;
             if (diffs.Count == 0)
@@ -5656,17 +5773,29 @@ namespace MPFever
                 bool changed = syncState != 1;
                 syncState = 1;
                 syncParts = "";
+                lastDriftWarnAt = -1e9;
                 syncText = T("SYNCHRONE ✔", "IN SYNC ✔");
                 if (changed || n % 6 == 1) Log.Ok(F("Synchronisation n°{0} (temps {1}) : IDENTIQUE sur {2} jeux ({3} mesures)", "Sync check #{0} (time {1}): IDENTICAL on {2} games ({3} measures)", n, time, names.Count, keys.Count));
             }
             else if (diffKeys.Where(d => !ignoredParts.Contains(d) && !CorrectedParts.Contains(d) && !DiagnosticParts.Contains(d)).All(DriftParts.Contains))
             {
-                // simulation drift (or money, corrected at once): no alarm, a line per minute
+                // simulation drift (or money, corrected at once): no alarm, a line per minute (or every ~3 min in PrivateFast warn-only mode)
                 bool changed = syncState != 2;
                 syncState = 2;
                 syncParts = string.Join(",", diffs.Select(d => DiffKey(d)));
                 syncText = T("SYNC ~ (légère dérive : ", "SYNC ~ (slight drift: ") + string.Join(",", diffs.Select(d => DiffKey(d))) + ")";
-                if (changed || n % 6 == 1)
+                lock (perfGate) perfDrifts++;
+                bool warnOnly = PrivateFastActive && !ShouldAutoResyncDrift(true, Environment.GetEnvironmentVariable("MPFEVER_DRIFTRESYNC"));
+                if (warnOnly)
+                {
+                    if (changed || Now - lastDriftWarnAt >= PrivateDriftWarnSeconds)
+                    {
+                        lastDriftWarnAt = Now;
+                        Log.Warn("Sync check #" + n + " (time " + time + "): slight simulation drift (" + string.Join(", ", diffs.Select(d => DiffKey(d))) + ") — warn only");
+                        foreach (var d in diffs) Log.W("    ~ " + d);
+                    }
+                }
+                else if (changed || n % 6 == 1)
                 {
                     Log.Warn(F("Synchronisation n°{0} (temps {1}) : légère dérive de la simulation ({2}), corrigée si elle dure", "Sync check #{0} (time {1}): slight simulation drift ({2}), corrected if it lasts", n, time, string.Join(", ", diffs.Select(d => DiffKey(d)))));
                     foreach (var d in diffs) Log.W("    ~ " + d);
@@ -5685,6 +5814,26 @@ namespace MPFever
 
         // ---------------------------------------------------------------- host authority: resynchronisation
 
+        /// <summary>Option B drift policy: in PrivateFast mode, DriftParts-only differences warn without triggering an automatic resync
+        /// unless MPFEVER_DRIFTRESYNC=1 is explicitly set.</summary>
+        internal static bool ShouldAutoResyncDrift(bool privateFast, string driftResyncEnv) =>
+            !privateFast || driftResyncEnv == "1";
+
+        /// <summary>Decides whether CheckResync triggers an automatic resync ("drift", "hard", or null).</summary>
+        internal static string DecideResync(IReadOnlyCollection<string> keys, int hardStreak, double driftAge, double cooldownAge,
+            bool privateFast, string driftResyncEnv)
+        {
+            if (keys == null || keys.Count == 0) return null;
+            if (keys.All(DriftParts.Contains))
+            {
+                if (!ShouldAutoResyncDrift(privateFast, driftResyncEnv)) return null;
+                double wait = keys.All(x => x == "nodeConfigs") ? NodeConfigsResyncSeconds : DriftResyncSeconds;
+                return (driftAge >= wait && cooldownAge >= ResyncCooldownSeconds) ? "drift" : null;
+            }
+            if (hardStreak < 2 || cooldownAge < ResyncCooldownSeconds) return null;
+            return "hard";
+        }
+
         /// <summary>A difference the games cannot correct by themselves, seen at two checkpoints in a row: every game
         /// reloads the host's savegame.</summary>
         void CheckResync(List<string> keys, int n)
@@ -5694,11 +5843,11 @@ namespace MPFever
             if (keys.Count == 0) { diffStreak = 0; lastDiffKeys = ""; driftSince = -1; return; }
             if (keys.All(DriftParts.Contains))
             {
-                // simulation drift only: reload once it has lasted DriftResyncSeconds
+                // simulation drift only: reload once it has lasted DriftResyncSeconds (suppressed in PrivateFast Option B)
                 diffStreak = 0; lastDiffKeys = "";
                 if (driftSince < 0) driftSince = Now;
-                double wait = keys.All(x => x == "nodeConfigs") ? NodeConfigsResyncSeconds : DriftResyncSeconds;
-                if (Now - driftSince < wait || Now - lastResync < ResyncCooldownSeconds) return;
+                if (DecideResync(keys, 0, Now - driftSince, Now - lastResync, PrivateFastActive, Environment.GetEnvironmentVariable("MPFEVER_DRIFTRESYNC")) != "drift")
+                    return;
                 driftSince = -1;
                 int others; lock (players) others = players.Count(p => p != hostName);
                 if (others == 0) return;
@@ -5716,6 +5865,8 @@ namespace MPFever
                 if (diffStreak == 2) Log.Warn(F("Écart persistant ({0}) : resynchronisation possible dans {1:0} s", "Persistent difference ({0}): resynchronisation possible in {1:0} s", k, ResyncCooldownSeconds - (Now - lastResync)));
                 return;
             }
+            if (DecideResync(keys, diffStreak, 0, Now - lastResync, PrivateFastActive, Environment.GetEnvironmentVariable("MPFEVER_DRIFTRESYNC")) != "hard")
+                return;
             int remote; lock (players) remote = players.Count(p => p != hostName);
             if (remote == 0) return;
             resyncing = true;

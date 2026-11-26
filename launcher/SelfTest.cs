@@ -100,6 +100,7 @@ namespace MPFever
             ok &= RunSpeedAt090();
             ok &= RunHashAdapt0817();
             ok &= RunSessionDisk094();
+            ok &= RunPrivateFast();
             Log.W(ok ? "SELFTEST OK" : "SELFTEST FAILED");
             return ok ? 0 : 1;
         }
@@ -2687,6 +2688,75 @@ owhere-" + Guid.NewGuid().ToString("N")) == null, "  no folder: none");
             string fallback = Text("nothing", true);
             Check(new[] { Text("banned", true), Text("refused", true), Text("kicked", true), Text("full", true) }.All(t => t != fallback && t.Length > 10)
                   && Text("kicked", true) != Text("kicked", false) && Text("full", true).Contains("4") && Text("full", true) != Text("full", false), "refusals of a player's game told to the player");
+            return ok;
+        }
+
+        /// <summary>Private-fast fork ("Złoty Środek"): ApplyPrivateFastEnv defaults/overrides/autotest/opt-out,
+        /// and Option B drift policy (DriftParts warn-only vs hard structural resync after 2 confirmations).</summary>
+        static bool RunPrivateFast()
+        {
+            bool ok = true;
+            void C(bool c, string what) { Log.W((c ? "ok    " : "FAIL  ") + "private-fast: " + what); ok &= c; }
+
+            var keys = new[] { "MPFEVER_PRIVATE_FAST", "MPFEVER_SDUMP", "MPFEVER_SDUMPAFTER", "MPFEVER_INDDIGEST",
+                "MPFEVER_STEPSDIGEST", "MPFEVER_PERSONDIGEST", "MPFEVER_VEH_LIGHT" };
+            var saved = keys.ToDictionary(k => k, k => Environment.GetEnvironmentVariable(k));
+            try
+            {
+                foreach (var k in keys) Environment.SetEnvironmentVariable(k, null);
+
+                // 1. Default PrivateFast env flags
+                var env1 = new System.Collections.Specialized.StringDictionary();
+                GameLink.ApplyPrivateFastEnv(env1, false);
+                C(env1["MPFEVER_PRIVATE_FAST"] == "1" && env1["MPFEVER_SDUMP"] == "0" && env1["MPFEVER_SDUMPAFTER"] == "0"
+                    && env1["MPFEVER_INDDIGEST"] == "0" && env1["MPFEVER_STEPSDIGEST"] == "0"
+                    && env1["MPFEVER_PERSONDIGEST"] == "0" && env1["MPFEVER_VEH_LIGHT"] == "1",
+                    "ApplyPrivateFastEnv sets all default private-fast flags");
+
+                // 2. Manual overrides (both dictionary and process env) are preserved
+                var env2 = new System.Collections.Specialized.StringDictionary { ["MPFEVER_SDUMP"] = "1" };
+                Environment.SetEnvironmentVariable("MPFEVER_VEH_LIGHT", "0");
+                GameLink.ApplyPrivateFastEnv(env2, false);
+                C(env2["MPFEVER_SDUMP"] == "1" && env2["MPFEVER_VEH_LIGHT"] == null && env2["MPFEVER_STEPSDIGEST"] == "0",
+                    "ApplyPrivateFastEnv respects manual overrides");
+                Environment.SetEnvironmentVariable("MPFEVER_VEH_LIGHT", null);
+
+                // 3. Disabled for autotest=true
+                var env3 = new System.Collections.Specialized.StringDictionary();
+                GameLink.ApplyPrivateFastEnv(env3, true);
+                C(env3.Count == 0, "ApplyPrivateFastEnv is a no-op when isAutotest=true");
+
+                // 4. Disabled when MPFEVER_PRIVATE_FAST=0
+                Environment.SetEnvironmentVariable("MPFEVER_PRIVATE_FAST", "0");
+                var env4 = new System.Collections.Specialized.StringDictionary();
+                GameLink.ApplyPrivateFastEnv(env4, false);
+                C(!GameLink.PrivateFastEnabled && env4.Count == 0, "ApplyPrivateFastEnv is disabled when MPFEVER_PRIVATE_FAST=0");
+            }
+            finally
+            {
+                foreach (var kv in saved) Environment.SetEnvironmentVariable(kv.Key, kv.Value);
+            }
+
+            // 5. Option B drift policy vs hard structural resync
+            var driftOnly = new[] { "persons", "vehicles", "stocks" };
+            var hardOnly = new[] { "constructions" };
+            var mixed = new[] { "persons", "edges" };
+
+            C(!MainForm.ShouldAutoResyncDrift(true, null) && MainForm.ShouldAutoResyncDrift(true, "1") && MainForm.ShouldAutoResyncDrift(false, null),
+                "ShouldAutoResyncDrift suppresses drift resync in PrivateFast unless MPFEVER_DRIFTRESYNC=1");
+            C(MainForm.DecideResync(driftOnly, 0, 600, 600, true, null) == null,
+                "Option B: DriftParts-only never auto-resyncs in PrivateFast");
+            C(MainForm.DecideResync(driftOnly, 0, 600, 600, true, "1") == "drift",
+                "Option B: MPFEVER_DRIFTRESYNC=1 re-enables drift auto-resync");
+            C(MainForm.DecideResync(driftOnly, 0, 600, 600, false, null) == "drift",
+                "Upstream mode: DriftParts-only auto-resyncs after DriftResyncSeconds");
+            C(MainForm.DecideResync(hardOnly, 1, 0, 600, true, null) == null
+                && MainForm.DecideResync(hardOnly, 2, 0, 600, true, null) == "hard"
+                && MainForm.DecideResync(hardOnly, 2, 0, 30, true, null) == null,
+                "Hard structural diff triggers resync after 2 confirmations (respecting cooldown)");
+            C(MainForm.DecideResync(mixed, 2, 0, 600, true, null) == "hard",
+                "Mixed drift + hard structural diff triggers hard resync after 2 confirmations");
+
             return ok;
         }
     }

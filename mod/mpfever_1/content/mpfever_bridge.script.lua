@@ -847,7 +847,7 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 	-- constructions, two games on one PC, 2026-11-07), "conParams" alone 0.17 to 0.29 s. Each part is checked every 50 s
 	-- instead of 30. MPFEVER_HASHHALVES=0 (on every game): whole, as before
 	R.hashHalves = os.getenv("MPFEVER_HASHHALVES") ~= "0" and os.getenv("MPFEVER_HASHGROUPS") ~= "0"
-	if n and (rot == "1" or (rot ~= "0" and not os.getenv("MPFEVER_SAVE"))) then
+	if not R.hashFast and n and (rot == "1" or (rot ~= "0" and not os.getenv("MPFEVER_SAVE"))) then
 		-- (0.6.8: the segments alone, their ages with the constructions and the nodes: the heaviest check of a big world held
 		-- the simulation 0.26 s, a hitch every 30 s. MPFEVER_HASHGROUPS=0: the groups of before)
 		-- ((0.8.17, #405) seven turns: Flubi's host held the simulation 0.17 to 0.24 s at most checks, "constructions",
@@ -855,6 +855,7 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 		-- persons' digest still meets every eighth, 7 being prime to 8). MPFEVER_HASHGROUPS7=0: the five turns of 0.7.5)
 		local seven = R.hashHalves and os.getenv("MPFEVER_HASHGROUPS7") ~= "0"
 		local groups = os.getenv("MPFEVER_HASHGROUPS") == "0" and { { "conParams" }, { "edges", "ages" }, { "constructions", "nodeConfigs" } }
+			or (seven and os.getenv("MPFEVER_PRIVATE_FAST") == "1") and { { "conParams" }, { "edges" }, { "constructions" }, { "nodeConfigs" }, { "conParams2" }, { "edges2", "owners" }, { "ages" }, { "vehicles" }, { "edgeObjects", "townBuildings", "persons" } }
 			or seven and { { "conParams" }, { "edges" }, { "constructions" }, { "nodeConfigs" }, { "conParams2" }, { "edges2", "owners" }, { "ages" } }
 			or R.hashHalves and { { "conParams" }, { "edges" }, { "constructions", "nodeConfigs", "ages" }, { "conParams2" }, { "edges2", "owners" } }
 			or { { "conParams" }, { "edges" }, { "constructions", "nodeConfigs", "ages" } }
@@ -863,7 +864,8 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 		-- every check on a world of 37 000 persons, as "owners" before it. Its checks (n % #groups, 5 or 3, both prime to 8) still
 		-- meet every eighth (n % 8), each within 8 of its turns. MPFEVER_PERSONDIGEST=each: at every check, as before)
 		if os.getenv("MPFEVER_PERSONDIGEST") ~= "each" then local g = groups[#groups]; g[#g + 1] = "personsDigest" end
-		local keep = groups[(n % #groups) + 1]
+		local rotN = (os.getenv("MPFEVER_PRIVATE_FAST") == "1" and type(R.hashAuditN) == "number") and R.hashAuditN or n
+		local keep = groups[(rotN % #groups) + 1]
 		R.hashSkip = {}
 		for _, g in ipairs(groups) do for _, p in ipairs(g) do R.hashSkip[p] = true end end
 		for _, p in ipairs(keep) do R.hashSkip[p] = nil end
@@ -890,16 +892,20 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 	parts.buildIds = bn .. "/" .. bs
 	-- (0.8.10, #317) the diagnostic parts timed too ("y.*" in the "hash costs" lines): a player's checks grew to seconds with
 	-- most of their time in no part listed
+	local isFast = R.hashFast == true
 	local tY = os.clock()
 	local yCost = { contentHash = tY - tStart }
-	pcall(function() parts.stepsDigest = K.stepsDigestAt(tonumber(at)) end)
-	yCost.stepsDigest = os.clock() - tY
-	tY = os.clock()
-	pcall(function() parts.industriesDigest = K.industriesDigest() end)
-	yCost.industriesDigest = os.clock() - tY
+	if not isFast then
+		pcall(function() parts.stepsDigest = K.stepsDigestAt(tonumber(at)) end)
+		yCost.stepsDigest = os.clock() - tY
+		tY = os.clock()
+		pcall(function() parts.industriesDigest = K.industriesDigest() end)
+		yCost.industriesDigest = os.clock() - tY
+	end
 	-- ((0.7.5) with the halves, "owners" takes its turn too, with "edges2": it reads every road, construction and vehicle
 	-- again, 0.03 to 0.07 s of every check)
 	local skipOwners = R.hashSkip and R.hashSkip.owners
+	if isFast then skipOwners = true end
 	R.hashSkip = nil
 	-- diagnostic (MPFEVER_VDUMP set): every vehicle and every company's money at each checkpoint, to diff two games
 	if os.getenv("MPFEVER_VDUMP") then
@@ -966,8 +972,10 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 	-- the terrain edits applied so far (the sum of their cells' checksums, kept in the simulation state)
 	parts.terrain = tostring(terrainSig or 0)
 	tMark = os.clock()
-	local okx, errx = pcall(extendedParts, parts, n)
-	if not okx then parts.extended = "ERR " .. tostring(errx):sub(1, 80) end
+	if not isFast then
+		local okx, errx = pcall(extendedParts, parts, n)
+		if not okx then parts.extended = "ERR " .. tostring(errx):sub(1, 80) end
+	end
 	costs.extended = os.clock() - tMark
 	if K.dumpCost then costs.dump = K.dumpCost; K.dumpCost = nil end
 	if K.extCost then for k, v in pairs(K.extCost) do costs["x." .. k] = v end; K.extCost = nil end
@@ -977,9 +985,10 @@ local function simHash(terrainSig, reg, n, buildIds, at)
 		log("hash profile: " .. tostring(pr))
 	end
 	-- (0.6.8: and later a check that held the simulation more than 0.12 s, one in 20 of them: which part weighs, on a big world)
-	K.hashHeavy = (K.hashHeavy or 0) + ((os.clock() - tStart > 0.12) and 1 or 0)
+	local costWarn = os.getenv("MPFEVER_PRIVATE_FAST") == "1" and 0.25 or 0.12
+	K.hashHeavy = (K.hashHeavy or 0) + ((os.clock() - tStart > costWarn) and 1 or 0)
 	-- (MPFEVER_HASHCOSTLOG=1, measures: every check's line)
-	if K.hashCostsShown < 3 or (os.clock() - tStart > 0.12 and K.hashHeavy % 20 == 1) or os.getenv("MPFEVER_HASHCOSTLOG") == "1" then
+	if K.hashCostsShown < 3 or (os.clock() - tStart > costWarn and K.hashHeavy % 20 == 1) or os.getenv("MPFEVER_HASHCOSTLOG") == "1" then
 		K.hashCostsShown = K.hashCostsShown + 1
 		local t = {}
 		for k, v in pairs(costs) do t[#t + 1] = string.format("%s=%.3f", k, v) end
@@ -2111,7 +2120,11 @@ local function simApplyDue(state)
 					if nameSync then R.nameCollect = {} end
 					R.namesStore = st
 					SDUMP.forceWorld = a.world == true
+					R.hashFast = a.fast == true or nil
+					R.hashAuditN = a.an
 					st.hash = { n = a.n, parts = simHash(terrainSigAt(st, now), st.co, a.n, st.buildIds, now), cost = os.clock() - c0, auth = okA and auth or nil }
+					R.hashFast = nil
+					R.hashAuditN = nil
 					SDUMP.forceWorld = nil
 					R.namesStore = nil
 					if nameSync then
@@ -11937,10 +11950,12 @@ end
 H.hash = function(from, p)
 	-- (0.7.7: world, the launcher asks every game for the dump's world part at this check, see SDUMP.forceWorld)
 	local w = p.world == true or nil
+	local f = p.fast == true or nil
+	local an = type(p.an) == "number" and p.an or nil
 	if p.paused then
-		G.pendingPaused[#G.pendingPaused + 1] = { kind = "hash", n = p.n, at = p.at, origin = "", oseq = -1, world = w }
+		G.pendingPaused[#G.pendingPaused + 1] = { kind = "hash", n = p.n, at = p.at, origin = "", oseq = -1, fast = f, an = an, world = w }
 	else
-		toSim("queue", { kind = "hash", n = p.n, at = p.at, origin = "", oseq = -1, world = w })
+		toSim("queue", { kind = "hash", n = p.n, at = p.at, origin = "", oseq = -1, fast = f, an = an, world = w })
 	end
 end
 
@@ -13643,8 +13658,10 @@ local function runPausedActions()
 				local nameSync = K.nameSyncOn()
 				if nameSync then R.nameCollect = {} end
 				SDUMP.forceWorld = a.world == true
+				if R then R.hashFast = a.fast == true or nil; R.hashAuditN = a.an end
 				send("sync_hash", { n = a.n, parts = simHash(G.simTerrainSig, G.co, a.n, G.simBuildIds, now), cost = 0, auth = okA and auth or nil,
 					ptd = (G.ptOn and G.pt.seen) and G.pt.done or nil })
+				if R then R.hashFast = nil; R.hashAuditN = nil end
 				SDUMP.forceWorld = nil
 				if nameSync then
 					local col = R.nameCollect
