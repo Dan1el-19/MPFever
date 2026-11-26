@@ -27,7 +27,7 @@ on:
 
 jobs:
   release:
-    runs-on: windows-2022
+    runs-on: windows-latest
     # (the signature waits for an approver: up to 2 hours below)
     timeout-minutes: 180
     # (SignPath reads the job's details and downloads the folders to sign with this job's token: the repository's tokens are
