@@ -6307,6 +6307,14 @@ U.hubContent = function(K, st, chat, ctx)
 		layout = K.col { head, K.gap(1, 10), K.row { sideBox, K.gap(14, 1), body } } }
 end
 
+U.loadSwiftFever = function()
+	if U.swiftMod ~= nil then return U.swiftMod or nil end
+	local ok, m = pcall(ug_require, "mpfever_swiftfever.lua")
+	if not (ok and type(m) == "table") then ok, m = pcall(ug_require, "mpfever_1::/mpfever_swiftfever.lua") end
+	U.swiftMod = (ok and type(m) == "table") and m or false
+	return U.swiftMod or nil
+end
+
 U.installNewWindow = function(react, builtin)
 	local K = U.kit
 	U.SessionWindow = react.RegisterWrapperRecipe("MPFeverSessionWindow", builtin.Window, function(wp)
@@ -6341,7 +6349,7 @@ U.installNewWindow = function(react, builtin)
 		end
 		local p = U.loadPrefs()
 		return builtin.Window {
-			title = U.compact and "MPFever" or ("MPFever – " .. T("Multijoueur", "Multiplayer")),
+			title = U.winTitle and U.winTitle(U.compact) or (U.compact and "MPFever" or ("MPFever – " .. T("Multijoueur", "Multiplayer"))),
 			id = "window.mpfever.session",
 			initialX = 0.99,
 			initialY = 0.1,
@@ -6786,6 +6794,19 @@ local function installSession(react, builtin)
 		if ok then U.toastShown = true else log("chat: notice not shown: " .. tostring(err)) end
 	end
 
+	if U.loadSwiftFever then
+		local sf = U.loadSwiftFever()
+		if sf and sf.applySession then
+			local okS, errS = pcall(sf.applySession, U, C, {
+				T = T, log = log, syncLine = syncLine, linkLine = linkLine,
+				playerCount = playerCount, playerLine = playerLine,
+				requestInvite = requestInvite, requestReport = requestReport,
+				sendLine = sendLine, myChatName = myChatName, sendChat = sendChat,
+			})
+			if not okS then log("swiftfever UI hook failed: " .. tostring(errS)) end
+		end
+	end
+
 	-- the chat window, from the pause menu (its window container) or from MPFever's window (the game's own)
 	local function openChat(wapi)
 		wapi = wapi or defaultWindowApi()
@@ -6835,7 +6856,7 @@ local function installSession(react, builtin)
 		local link, linkCls = linkLine(st)
 		local status, cls = link or sync, link and linkCls or syncCls
 		local info = builtin.BoxLayout { orientation = V, children = {
-			text("MPFever  –  " .. T("Multijoueur", "Multiplayer"), "font-scale-title-4"),
+			text((U.brandName or "MPFever") .. "  –  " .. T("Multijoueur", "Multiplayer"), "font-scale-title-4"),
 			row { dot(cls), builtin.TextView { meta = { class = "font-scale-body" .. (cls and (", " .. cls) or ""), styleSheet = style { color = classColor(cls) } }, text = "  " .. status } },
 			muted(C.Tf("%s joueur(s) dans la partie", "%s player(s) in the game", playerCount(st)) .. "   ·   " .. T("Afficher pendant la partie  ›", "Show while playing  ›")),
 		} }
@@ -6847,7 +6868,7 @@ local function installSession(react, builtin)
 				meta = {
 					class = "burger-menu, top-right, ani-pulse",
 					styleSheet = style { size = { 600, 112 }, image = "::/gui/menu/design/main_menu_card_top_right_content_mask.tga", nine = CARD_NINE,
-						bg = color(hover:old() and "AccentVeryDark" or "BaseDarkMedium", 0.9) },
+						bg = U.pauseBg and U.pauseBg(hover:old()) or color(hover:old() and "AccentVeryDark" or "BaseDarkMedium", 0.9) },
 					onMouseOver = function(h) if hover:old() ~= (h and true or false) then hover:set(h and true or false) end end,
 				},
 				content = builtin.Component { layout = builtin.BoxLayout { orientation = H, children = {
@@ -6874,7 +6895,7 @@ local function installSession(react, builtin)
 				meta = {
 					class = "burger-menu, bottom-left, ani-pulse",
 					styleSheet = style { size = { 600, 88 }, image = "::/gui/menu/design/main_menu_card_bottom_left_content_mask.tga", nine = CARD_NINE,
-						bg = color(hover:old() and "AccentVeryDark" or "BaseDarkMedium", 0.9) },
+						bg = U.pauseBg and U.pauseBg(hover:old()) or color(hover:old() and "AccentVeryDark" or "BaseDarkMedium", 0.9) },
 					onMouseOver = function(h) if hover:old() ~= (h and true or false) then hover:set(h and true or false) end end,
 				},
 				content = builtin.Component { layout = builtin.BoxLayout { orientation = H, children = {
@@ -7717,6 +7738,10 @@ do
 		end
 		local okK, kit = pcall(U.makeKit, builtin)
 		if okK then U.kit = kit else log("window: drawing helpers not made: " .. tostring(kit)) end
+		if okK and U.loadSwiftFever then
+			local sf = U.loadSwiftFever()
+			if sf and sf.applyKit then pcall(sf.applyKit, U, C) end
+		end
 		-- MPFever's icon in the game's bottom bar (see U.barFn). mpfever_bar.res.lua names this recipe: it must exist whatever
 		-- happens, an empty one when the bar's extension point cannot be had, or the game would draw its bar with a missing
 		-- recipe. (The bar's module by the very name the game loads it with: the same module, its extension point once.)
