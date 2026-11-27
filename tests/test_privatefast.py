@@ -234,7 +234,7 @@ def main():
     core = read(CORE)
     mf = read(MAINFORM)
     st = read(SELFTEST)
-    check('Updater.Repo points to Dan1el-19/MPFever', 'public const string Repo = "Dan1el-19/MPFever";' in up)
+    check('Updater.Repo points to Dan1el-19/SwiftFever', 'public const string Repo = "Dan1el-19/SwiftFever";' in up)
     check("Core.cs applies PrivateFast env defaults in Launch", "ApplyPrivateFastEnv(psi.EnvironmentVariables," in core)
     check("MainForm.cs has RequestHashFast and DecideResync Option B",
           "void RequestHashFast()" in mf and "internal static string DecideResync(" in mf)

@@ -50,7 +50,9 @@ opens = body(main, "        void OpenSettings()", "\n        }\n")
 
 # 1. the card a player's window shows, the old one in developer mode or with the switch
 check("the left card: the server's, the old one (--dev, MPFEVER_CONNCARD=1) or the links",
-      "Ui.StackTop(left, ServerMode ? BuildServerCard() : ConnCardOn ? conn : BuildLinksCard(), Ui.Gap(14));" in bu)
+      "bool showLeft = ServerMode || ConnCardOn;" in bu
+      and "Ui.StackTop(left, ServerMode ? BuildServerCard() : conn, Ui.Gap(14));" in bu
+      and "Card BuildLinksCard()" in main)
 check("  the old card only in developer mode or with MPFEVER_CONNCARD=1",
       'internal static bool ConnCard(bool dev, string env) => dev || env == "1";' in main
       and 'static bool ConnCardOn => ConnCard(Dev, Environment.GetEnvironmentVariable("MPFEVER_CONNCARD"));' in main)
@@ -73,11 +75,12 @@ check("the URLs: Ko-fi and the Discord invitation", 'public const string KofiUrl
       and 'public const string DiscordUrl = "https://discord.gg/DfMxFUQZCR";' in thanks
       and "internal static void Open(string url)" in thanks and "try { Process.Start(url); }" in thanks)
 
-# 3. the bottom bar keeps its links; one settings window for both
+# 3. the bottom bar keeps game path + fork credit; settings button opens the same window
+cons = body(main, "        public MainForm(bool autotest = false)", "// ---------------------------------------------------------------- window layout")
 check("the bottom bar: Settings, Discord, Ko-fi, the author, as before",
-      all(x in bu for x in ("footer.Controls.Add(settingsLink);", "footer.Controls.Add(discord);", "footer.Controls.Add(kofi);", "footer.Controls.Add(credit);",
-                            'Process.Start("https://ko-fi.com/knighthd")', "Process.Start(ThanksDialog.DiscordUrl)")))
-check("the bottom bar's Settings opens the same window", "settingsLink.Click += (s, e) => OpenSettings();" in bu)
+      all(x in bu for x in ("footer.Controls.Add(gameLabel);", "footer.Controls.Add(baseCredit);", "footer.Controls.Add(forkCredit);",
+                            "headerTools.Controls.Add(settingsBtn);")))
+check("the bottom bar's Settings opens the same window", "settingsBtn.Click += (s, e) => OpenSettings();" in cons)
 check("the settings window as before (read only for a guest, every game gets the settings)",
       "bool guest = relay == null && clients.Count > 0 && Options.HostSession != null;" in opens
       and "using (var d = new OptionsDialog(guest)) d.ShowDialog(this);" in opens and "foreach (var g in games.ToList()) g.WriteSettings();" in opens)

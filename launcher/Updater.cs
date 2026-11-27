@@ -32,7 +32,7 @@ namespace MPFever
     /// own files (mpfever_settings.txt, logs) are kept. autoupdate=0 in mpfever_settings.txt turns the check off.</summary>
     static class Updater
     {
-        public const string Repo = "Dan1el-19/MPFever";
+        public const string Repo = "Dan1el-19/SwiftFever";
         public const string ReleasesPage = "https://github.com/" + Repo + "/releases";
         const string Api = "https://api.github.com/repos/" + Repo + "/releases?per_page=30";
         /// <summary>How long the start of the game waits at most for GitHub's answer.</summary>

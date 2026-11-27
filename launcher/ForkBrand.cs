@@ -8,7 +8,7 @@ namespace MPFever
         public const string AppName = "SwiftFever";
         public const string Subtitle = "Performance-optimized MPFever";
         public const string AuthorName = "Dan1el-19";
-        public const string AuthorUrl = "https://github.com/Dan1el-19/MPFever";
+        public const string AuthorUrl = "https://github.com/Dan1el-19/SwiftFever";
         public const string BaseAuthorName = "dkdknight";
         public const string BaseAuthorUrl = "https://github.com/dkdknight/MPFever";
 

@@ -745,7 +745,7 @@ namespace MPFever
             }
 
             var by = MakeFooterText("by");
-            var forkCredit = MakeFooterLink(ForkBrand.AuthorName, ForkBrand.AuthorUrl, "github.com/Dan1el-19/MPFever");
+            var forkCredit = MakeFooterLink(ForkBrand.AuthorName, ForkBrand.AuthorUrl, "github.com/Dan1el-19/SwiftFever");
             var basedOn = MakeFooterText("based on");
             var baseCredit = MakeFooterLink(ForkBrand.BaseAuthorName, ForkBrand.BaseAuthorUrl, "github.com/dkdknight/MPFever");
 

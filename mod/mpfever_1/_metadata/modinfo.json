@@ -1,8 +1,8 @@
 {
-    "authors": [ { "name": "MPFever", "role": "CREATOR" } ],
-    "description": "Multiplayer for Transport Fever 3. The mod does nothing in a normal solo game: it only becomes active when the game is started by MPFever.exe.",
-    "name": "MPFever Multiplayer",
-    "summary": "Multiplayer (start the game through MPFever.exe)",
+    "authors": [ { "name": "Dan1el-19 (based on dkdknight / MPFever)", "role": "CREATOR" } ],
+    "description": "SwiftFever is a performance-optimized fork of MPFever for Transport Fever 3 (supports game build 40444). Inactive in normal solo games; activates only when launched via MPFever.exe.",
+    "name": "SwiftFever Multiplayer",
+    "summary": "SwiftFever — Performance-optimized multiplayer for Transport Fever 3 (start via MPFever.exe)",
     "tags": [ "Script Mod" ],
-    "url": ""
+    "url": "https://github.com/Dan1el-19/SwiftFever"
 }

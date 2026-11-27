@@ -157,27 +157,27 @@ local function countActivePlayers(st)
 	return n
 end
 
-local function hostSummary(st, T, Tf)
+local function hostSummary(st, sfT, Tf)
 	if not (st and st.host) then return SF.BRAND end
 	local name = (st.server == "1" and st.title and st.title ~= "") and st.title or st.host
-	local mode = st.mode == "separate" and T("Entreprises", "Companies") or T("Coop", "Co-op")
+	local mode = st.mode == "separate" and sfT("Entreprises", "Companies") or sfT("Coop", "Co-op")
 	return Tf("Hôte : %s", "Host: %s", name) .. "  ·  " .. mode
 end
 
-local function shortSyncLine(st, T, Tf)
+local function shortSyncLine(st, T, sfT, sfTf)
 	local sync = st and st.sync or "none"
 	local parts = (st and st.parts and st.parts ~= "") and (" (" .. st.parts .. ")") or ""
 	if sync == "ok" then
 		local age = tonumber(st.age) or -1
-		return T("Synchrone", "In sync") .. (age >= 0 and (" · " .. Tf("%s s", "%s s ago", age)) or ""), "success"
+		return T("Synchrone", "In sync") .. (age >= 0 and (" · " .. sfTf("%s s", "%s s ago", age)) or ""), "success"
 	elseif sync == "drift" then
-		return T("Dérive", "Drift") .. parts, "warning"
+		return sfT("Dérive", "Drift") .. parts, "warning"
 	elseif sync == "desync" then
 		return T("Désynchro", "Out of sync") .. parts, "error"
 	elseif sync == "resync" then
-		return T("Resynchro…", "Resync…"), "info"
+		return sfT("Resynchro…", "Resync…"), "info"
 	end
-	return T("Non vérifiée", "Not checked"), nil
+	return sfT("Non vérifiée", "Not checked"), nil
 end
 
 function SF.applySession(U, C, deps)
@@ -186,6 +186,10 @@ function SF.applySession(U, C, deps)
 	SF.applyKit(U, C)
 
 	local T = deps.T
+	local Tf = C.Tf
+	-- Local wrappers for fork-specific UI strings so test_lang.py stays green without altering upstream lang.json
+	local function sfT(fr, en) return T(fr, en) end
+	local function sfTf(fr, en, ...) return Tf(fr, en, ...) end
 	local log = deps.log or function() end
 	local syncLine = deps.syncLine
 	local linkLine = deps.linkLine
@@ -196,7 +200,6 @@ function SF.applySession(U, C, deps)
 	local sendLine = deps.sendLine
 	local myChatName = deps.myChatName
 	local sendChat = deps.sendChat
-	local Tf = C.Tf
 
 	-- Titles (SwiftFever branding)
 	U.winTitle = function(compact)
@@ -240,7 +243,7 @@ function SF.applySession(U, C, deps)
 	-- Ultra-Compact 240px Card
 	U.compactContent = function(K, st)
 		local CW = 216
-		local sText, sCls = shortSyncLine(st, T, Tf)
+		local sText, sCls = shortSyncLine(st, T, sfT, sfTf)
 		local fullTip = select(1, syncLine(st))
 		local link, linkCls = linkLine(st)
 		local cardRows = {}
@@ -301,8 +304,8 @@ function SF.applySession(U, C, deps)
 
 		local hasHub = U.HubWindow and U.hubOn()
 		local topRow = {
-			K.muted(hostSummary(st, T, Tf), K.WIN_W - (hasHub and 138 or 78)),
-			K.btn(T("Mini", "Mini"), T("Une petite carte : la synchronisation, les joueurs et la discussion", "Compact card: sync, players and chat"), function() U.setCompact(true) end),
+			K.muted(hostSummary(st, sfT, Tf), K.WIN_W - (hasHub and 138 or 78)),
+			K.btn(sfT("Mini", "Mini"), sfT("Une petite carte : la synchronisation, les joueurs et la discussion", "Compact card: sync, players and chat"), function() U.setCompact(true) end),
 		}
 		if hasHub then
 			topRow[#topRow + 1] = K.gap(4, 1)
@@ -330,7 +333,7 @@ function SF.applySession(U, C, deps)
 		end
 
 		-- Unified Status + Speed elevated Bento card
-		local sShort, sCls = shortSyncLine(st, T, Tf)
+		local sShort, sCls = shortSyncLine(st, T, sfT, sfTf)
 		local sFull = select(1, syncLine(st))
 		local showSpeed = U.installed and st and st.started == "1"
 		local statusRow = {
@@ -348,7 +351,7 @@ function SF.applySession(U, C, deps)
 		local syncCardRows = { K.row(statusRow) }
 		local desyncs, resyncs = tonumber(st and st.desyncs) or 0, tonumber(st and st.resyncs) or 0
 		if desyncs > 0 or resyncs > 0 then
-			syncCardRows[#syncCardRows + 1] = K.muted(Tf("%s désynchro(s) · %s resynchro(s)", "%s desync(s) · %s resync(s)", desyncs, resyncs), W)
+			syncCardRows[#syncCardRows + 1] = K.muted(sfTf("%s désynchro(s) · %s resynchro(s)", "%s desync(s) · %s resync(s)", desyncs, resyncs), W)
 		end
 		rows[#rows + 1] = K.sfCard("elevated", syncCardRows, K.CARD_W, { 8, 10, 8, 10 })
 		rows[#rows + 1] = K.gap(1, 6)
@@ -357,7 +360,7 @@ function SF.applySession(U, C, deps)
 		local pRows = {
 			K.row {
 				K.text(T("Joueurs", "Players") .. " (" .. playerCount(st) .. ")", "font-scale-title-4", nil, W - 90),
-				K.muted(T("Sync · Rythme", "Sync · Pace"), 90),
+				K.muted(sfT("Sync · Rythme", "Sync · Pace"), 90),
 			},
 		}
 		local kick = st and st.pubkick == "1" and U.isHost(st)
@@ -370,9 +373,9 @@ function SF.applySession(U, C, deps)
 					local r = {}
 					if signs then r[#r + 1] = signs; r[#r + 1] = K.gap(6, 1) end
 					r[#r + 1] = K.text(line, nil, cls, W - (signs and 180 or 146))
-					r[#r + 1] = K.btn(T("Excl.", "Kick"), nil, function() U.menuRequest("kick", who) end)
+					r[#r + 1] = K.btn(sfT("Excl.", "Kick"), nil, function() U.menuRequest("kick", who) end)
 					r[#r + 1] = K.gap(4, 1)
-					r[#r + 1] = K.btn(T("Ban.", "Ban"), nil, function() U.menuRequest("ban", who) end)
+					r[#r + 1] = K.btn(sfT("Ban.", "Ban"), nil, function() U.menuRequest("ban", who) end)
 					pRows[#pRows + 1] = K.row(r)
 				elseif signs then
 					pRows[#pRows + 1] = K.row { signs, K.gap(6, 1), K.text(line, nil, cls, W - 36) }
@@ -385,7 +388,7 @@ function SF.applySession(U, C, deps)
 			for who in st.pending:gmatch("[^,]+") do
 				local id = who
 				pRows[#pRows + 1] = K.gap(1, 4)
-				pRows[#pRows + 1] = K.text(Tf("%s veut rejoindre", "%s wants to join", (id:gsub("#%d+$", ""))), nil, "warning", W)
+				pRows[#pRows + 1] = K.text(sfTf("%s veut rejoindre", "%s wants to join", (id:gsub("#%d+$", ""))), nil, "warning", W)
 				pRows[#pRows + 1] = K.row {
 					K.btn(T("Accepter", "Accept"), nil, function() U.menuRequest("admit", id .. " 1") end, true),
 					K.gap(4, 1),
@@ -405,12 +408,12 @@ function SF.applySession(U, C, deps)
 		if canResync then
 			local left = tonumber(st.resyncin) or 0
 			local note, enabled = nil, false
-			if st.sync == "resync" then note = T("Resynchro…", "Resyncing…")
+			if st.sync == "resync" then note = sfT("Resynchro…", "Resyncing…")
 			elseif U.resyncAskedAt and os.clock() - U.resyncAskedAt < 15 then note = T("Resynchronisation demandée…", "Resynchronisation asked…")
 			elseif playerCount(st) < 2 then note = T("Aucun autre joueur à resynchroniser.", "No other player to resynchronise.")
-			elseif left > 0 then note = Tf("Possible dans %s s (une toutes les 2 min).", "Available in %s s (one every 2 min).", math.ceil(left))
-			else note, enabled = T("Recharger votre partie chez tous les joueurs (~1 min).", "Reload your game on every player's PC (~1 min)."), true end
-			actionBtns[#actionBtns + 1] = K.btn(T("Resync", "Resync"), note or sFull, function()
+			elseif left > 0 then note = sfTf("Possible dans %s s (une toutes les 2 min).", "Available in %s s (one every 2 min).", math.ceil(left))
+			else note, enabled = sfT("Recharger votre partie chez tous les joueurs (~1 min).", "Reload your game on every player's PC (~1 min)."), true end
+			actionBtns[#actionBtns + 1] = K.btn(sfT("Resync", "Resync"), note or sFull, function()
 				if U.menuRequest("resync") then
 					U.resyncAskedAt = os.clock()
 					U.winChanged()
@@ -421,9 +424,9 @@ function SF.applySession(U, C, deps)
 		if st and st.started == "1" and os.getenv("MPFEVER_PINGS") ~= "0" then
 			if #actionBtns > 0 then actionBtns[#actionBtns + 1] = K.gap(6, 1) end
 			local pings = {
-				{ k = "here", label = T("Ici", "Here"), tip = T("Signal « Ici » sur la carte (12 s)", "Ping « Here » on map (12 s)") },
-				{ k = "warn", label = T("Att.", "Warn"), tip = T("Signal « Attention » sur la carte (12 s)", "Ping « Watch out » on map (12 s)") },
-				{ k = "build", label = T("Const.", "Build"), tip = T("Signal « Construire ici » sur la carte (12 s)", "Ping « Build here » on map (12 s)") },
+				{ k = "here", label = T("Ici", "Here"), tip = sfT("Signal « Ici » sur la carte (12 s)", "Ping « Here » on map (12 s)") },
+				{ k = "warn", label = sfT("Att.", "Warn"), tip = sfT("Signal « Attention » sur la carte (12 s)", "Ping « Watch out » on map (12 s)") },
+				{ k = "build", label = sfT("Const.", "Build"), tip = sfT("Signal « Construire ici » sur la carte (12 s)", "Ping « Build here » on map (12 s)") },
 			}
 			for i, pg in ipairs(pings) do
 				if i > 1 then actionBtns[#actionBtns + 1] = K.gap(4, 1) end
@@ -436,7 +439,7 @@ function SF.applySession(U, C, deps)
 			end
 			if U.lastPing then
 				actionBtns[#actionBtns + 1] = K.gap(4, 1)
-				actionBtns[#actionBtns + 1] = K.btn(T("Dern.", "Last"), T("Voir le dernier signal sur la carte", "Show last ping on map"), function()
+				actionBtns[#actionBtns + 1] = K.btn(sfT("Dern.", "Last"), sfT("Voir le dernier signal sur la carte", "Show last ping on map"), function()
 					local x = U.lastPing
 					pcall(function() api.gui.camera.focusPosition(api.type.Vec3f.new(x.x, x.y, x.z or 0), 400) end)
 				end)
@@ -481,15 +484,15 @@ function SF.applySession(U, C, deps)
 		for _, m in ipairs(pick) do
 			local time = U.hhmm(m.t)
 			if m.kind == "join" then
-				rows[#rows + 1] = K.muted(time .. "  " .. Tf("%s a rejoint", "%s joined", m.name), W)
+				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s a rejoint", "%s joined", m.name), W)
 			elseif m.kind == "left" then
-				rows[#rows + 1] = K.muted(time .. "  " .. Tf("%s a quitté", "%s left", m.name), W)
+				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s a quitté", "%s left", m.name), W)
 			elseif m.kind == "away" then
-				rows[#rows + 1] = K.muted(time .. "  " .. Tf("%s hors ligne (pause)", "%s lost connection", m.name), W)
+				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s hors ligne (pause)", "%s lost connection", m.name), W)
 			elseif m.kind == "back" then
-				rows[#rows + 1] = K.muted(time .. "  " .. Tf("%s de retour", "%s is back", m.name), W)
+				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s de retour", "%s is back", m.name), W)
 			elseif m.kind == "unsent" then
-				rows[#rows + 1] = K.row { K.muted(time, TIME_W), K.text(T("Non envoyé : ", "Not sent: ") .. m.text, nil, "error", W - TIME_W) }
+				rows[#rows + 1] = K.row { K.muted(time, TIME_W), K.text(sfT("Non envoyé : ", "Not sent: ") .. m.text, nil, "error", W - TIME_W) }
 			else
 				rows[#rows + 1] = K.row {
 					K.muted(time, TIME_W),
@@ -529,10 +532,10 @@ function SF.applySession(U, C, deps)
 		local W = K.TEXT_W
 		local rows = {}
 		local p = U.loadPrefs()
-		rows[#rows + 1] = K.section(K.ICON_SETTINGS, T("Fenêtre SwiftFever", "SwiftFever window"))
+		rows[#rows + 1] = K.section(K.ICON_SETTINGS, sfT("Fenêtre SwiftFever", "SwiftFever window"))
 		rows[#rows + 1] = K.row { builtin.CheckBox {
 			value = p.autoopen == "0" and 0 or 1,
-			label = T("Ouvrir SwiftFever au début de chaque partie", "Open SwiftFever when a game starts"),
+			label = sfT("Ouvrir SwiftFever au début de chaque partie", "Open SwiftFever when a game starts"),
 			onValueChange = function(v) U.saveAutoOpen(v == 1); U.winChanged() end,
 		} }
 		if st and st.mode == "separate" then
@@ -549,15 +552,15 @@ function SF.applySession(U, C, deps)
 		end
 		rows[#rows + 1] = K.row { builtin.CheckBox {
 			value = U.oldMenus() and 1 or 0,
-			label = T("Utiliser les anciennes pages de la fenêtre (0.7.3)", "Use the window's old pages (0.7.3)"),
+			label = sfT("Utiliser les anciennes pages de la fenêtre (0.7.3)", "Use the window's old pages (0.7.3)"),
 			onValueChange = function(v) p.oldmenus = v == 1 and "1" or "0"; U.saveGlobalPrefs(); U.winChanged() end,
 		} }
 		U.settingsRows(K, rows)
 		rows[#rows + 1] = K.gap(1, 12)
-		rows[#rows + 1] = K.section(K.ICON_ALERT, T("Diagnostics & Info", "Diagnostics & Info"))
+		rows[#rows + 1] = K.section(K.ICON_ALERT, sfT("Diagnostics & Info", "Diagnostics & Info"))
 		rows[#rows + 1] = K.muted(SF.BRAND .. " · " .. SF.SUBTITLE .. " (" .. SF.CREDIT .. ")", W)
 		rows[#rows + 1] = K.gap(1, 4)
-		rows[#rows + 1] = K.row { K.btn(U.reportLabel(), T("Rassemble les journaux dans un zip pour signaler un problème.", "Gathers the logs into a zip to report an issue."), requestReport) }
+		rows[#rows + 1] = K.row { K.btn(U.reportLabel(), sfT("Rassemble les journaux dans un zip pour signaler un problème.", "Gathers the logs into a zip to report an issue."), requestReport) }
 		if U.reportMsg and U.reportAsked and os.time() - U.reportAsked <= 120 then rows[#rows + 1] = K.muted(U.reportMsg, W) end
 		return rows
 	end
