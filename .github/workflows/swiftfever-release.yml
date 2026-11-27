@@ -6,6 +6,17 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      bump:
+        description: "auto: bump patch revision (e.g. 0.9.7.1 -> 0.9.7.2), commit & tag before building; none: build & publish current VERSION"
+        type: choice
+        options:
+          - auto
+          - none
+        default: auto
+      version:
+        description: "Optional explicit version (e.g. 0.9.8.1); overrides bump when set"
+        type: string
+        default: ""
       prerelease:
         description: "Mark GitHub Release as a pre-release"
         type: boolean
@@ -15,13 +26,85 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.prep.outputs.version }}
+      ref: ${{ steps.prep.outputs.ref }}
+      tag: ${{ steps.prep.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release version, commit, and tag
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          read_ver() {
+            sed -n 's/^set "VERSION=\([^"]*\)".*/\1/p' build.bat | tr -d '\r'
+          }
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            v="$(read_ver)"
+            {
+              echo "version=$v"
+              echo "ref=${GITHUB_SHA}"
+              echo "tag=${REF_NAME}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$INPUT_VERSION" ] || [ "$INPUT_BUMP" = "auto" ]; then
+            if [ "$REF_TYPE" != "branch" ]; then
+              echo "Automated version bump must be started from a branch (e.g. private-fast), or select bump=none." >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            if [ -n "$INPUT_VERSION" ]; then
+              python3 tools/swiftfever_release.py "$INPUT_VERSION" --no-push --allow-branch
+            else
+              python3 tools/swiftfever_release.py --no-push --allow-branch
+            fi
+            v="$(read_ver)"
+            git push origin "HEAD:${REF_NAME}"
+            git push origin "v${v}"
+            {
+              echo "version=$v"
+              echo "ref=$(git rev-parse HEAD)"
+              echo "tag=v${v}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            v="$(read_ver)"
+            tag="${REF_NAME}"
+            if [ "$REF_TYPE" = "branch" ]; then
+              tag="v${v}"
+            fi
+            {
+              echo "version=$v"
+              echo "ref=${GITHUB_SHA}"
+              echo "tag=${tag}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: [prepare]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: actions/setup-python@v7
         with:
@@ -36,39 +119,28 @@ jobs:
           cmd /c build.bat 2>&1 | Tee-Object -FilePath build.log
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      - name: Version
-        id: version
-        shell: pwsh
-        run: |
-          $v = (Select-String -Path build.bat -Pattern '^set "VERSION=([^"]+)"').Matches[0].Groups[1].Value
-          "version=$v" >> $env:GITHUB_OUTPUT
-
       - name: Upload game archives
         uses: actions/upload-artifact@v7
         with:
-          name: swiftfever-game-${{ steps.version.outputs.version }}
+          name: swiftfever-game-${{ needs.prepare.outputs.version }}
           path: |
-            release/MPFever-${{ steps.version.outputs.version }}.zip
-            release/MPFever-${{ steps.version.outputs.version }}-server.zip
+            release/MPFever-${{ needs.prepare.outputs.version }}.zip
+            release/MPFever-${{ needs.prepare.outputs.version }}-server.zip
           if-no-files-found: error
           retention-days: 7
 
   windows-relay:
+    needs: [prepare]
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "9.0.x"
-
-      - name: Version
-        id: version
-        shell: pwsh
-        run: |
-          $v = (Select-String -Path build.bat -Pattern '^set "VERSION=([^"]+)"').Matches[0].Groups[1].Value
-          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Publish Windows relay (x64)
         run: dotnet publish relay/MPFeverRelay.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts/windows
@@ -79,7 +151,7 @@ jobs:
       - name: Pack Windows relay
         shell: pwsh
         run: |
-          $v = "${{ steps.version.outputs.version }}"
+          $v = "${{ needs.prepare.outputs.version }}"
           $f = "Relay-MPFever-$v-win-x64.zip"
           New-Item -ItemType Directory -Force release/MPFever-Relay | Out-Null
           Copy-Item artifacts/windows/mpfever-relay.exe, docs/RELAY.md release/MPFever-Relay/
@@ -88,24 +160,23 @@ jobs:
       - name: Upload Windows relay
         uses: actions/upload-artifact@v7
         with:
-          name: swiftfever-relay-win-${{ steps.version.outputs.version }}
-          path: release/Relay-MPFever-${{ steps.version.outputs.version }}-win-x64.zip
+          name: swiftfever-relay-win-${{ needs.prepare.outputs.version }}
+          path: release/Relay-MPFever-${{ needs.prepare.outputs.version }}-win-x64.zip
           if-no-files-found: error
           retention-days: 7
 
   linux-relay:
+    needs: [prepare]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "9.0.x"
-
-      - name: Version
-        id: version
-        run: echo "version=$(sed -n 's/^set "VERSION=\([^"]*\)".*/\1/p' build.bat | tr -d '\r')" >> "$GITHUB_OUTPUT"
 
       - name: Publish Linux relay (x64)
         run: dotnet publish relay/MPFeverRelay.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -o artifacts/linux
@@ -115,7 +186,7 @@ jobs:
 
       - name: Pack Linux relay
         run: |
-          v="${{ steps.version.outputs.version }}"
+          v="${{ needs.prepare.outputs.version }}"
           f="Relay-MPFever-$v-linux-x64.tar.gz"
           mkdir -p release/MPFever-Relay
           cp artifacts/linux/mpfever-relay docs/RELAY.md release/MPFever-Relay/
@@ -124,18 +195,20 @@ jobs:
       - name: Upload Linux relay
         uses: actions/upload-artifact@v7
         with:
-          name: swiftfever-relay-linux-${{ steps.version.outputs.version }}
-          path: release/Relay-MPFever-${{ steps.version.outputs.version }}-linux-x64.tar.gz
+          name: swiftfever-relay-linux-${{ needs.prepare.outputs.version }}
+          path: release/Relay-MPFever-${{ needs.prepare.outputs.version }}-linux-x64.tar.gz
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    needs: [build, windows-relay, linux-relay]
+    needs: [prepare, build, windows-relay, linux-relay]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -145,7 +218,7 @@ jobs:
 
       - name: Verify archives and compute SHA-256
         run: |
-          v="${{ needs.build.outputs.version }}"
+          v="${{ needs.prepare.outputs.version }}"
           test -f "dist/MPFever-${v}.zip"
           test -f "dist/MPFever-${v}-server.zip"
           test -f "dist/Relay-MPFever-${v}-win-x64.zip"
@@ -155,7 +228,7 @@ jobs:
 
       - name: Prepare release notes
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           python3 - <<'PY'
           import os, textwrap
@@ -187,14 +260,11 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          REF: ${{ needs.prepare.outputs.ref }}
           PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
-          else
-            TAG="v${VERSION}"
-          fi
           echo "Publishing release ${TAG} for SwiftFever ${VERSION} (prerelease=${PRERELEASE})"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
@@ -205,8 +275,8 @@ jobs:
             fi
           else
             if [ "$PRERELEASE" = "true" ]; then
-              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "${{ github.sha }}" --prerelease
+              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "$REF" --prerelease
             else
-              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "${{ github.sha }}" --latest
+              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "$REF" --latest
             fi
           fi
