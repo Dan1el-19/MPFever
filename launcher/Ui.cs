@@ -9,18 +9,18 @@ namespace MPFever
     /// <summary>Colours, fonts and helpers of the launcher's dark theme.</summary>
     static class Theme
     {
-        public static readonly Color Bg = Color.FromArgb(16, 17, 21);
-        public static readonly Color Surface = Color.FromArgb(26, 28, 34);
-        public static readonly Color Raised = Color.FromArgb(36, 39, 47);
-        public static readonly Color RaisedHover = Color.FromArgb(45, 49, 59);
-        public static readonly Color Border = Color.FromArgb(44, 48, 58);
-        public static readonly Color Text = Color.FromArgb(233, 235, 240);
-        public static readonly Color Muted = Color.FromArgb(146, 152, 166);
-        public static readonly Color Faint = Color.FromArgb(94, 100, 114);
-        public static readonly Color Accent = Color.FromArgb(255, 138, 61);
-        public static readonly Color AccentHover = Color.FromArgb(255, 160, 96);
-        public static readonly Color AccentPressed = Color.FromArgb(228, 116, 44);
-        public static readonly Color OnAccent = Color.FromArgb(28, 17, 8);
+        public static readonly Color Bg = Color.FromArgb(10, 13, 20);
+        public static readonly Color Surface = Color.FromArgb(19, 25, 38);
+        public static readonly Color Raised = Color.FromArgb(27, 35, 53);
+        public static readonly Color RaisedHover = Color.FromArgb(36, 47, 71);
+        public static readonly Color Border = Color.FromArgb(28, 35, 51);
+        public static readonly Color Text = Color.FromArgb(236, 240, 247);
+        public static readonly Color Muted = Color.FromArgb(142, 155, 178);
+        public static readonly Color Faint = Color.FromArgb(90, 102, 125);
+        public static readonly Color Accent = Color.FromArgb(59, 130, 246);
+        public static readonly Color AccentHover = Color.FromArgb(96, 165, 250);
+        public static readonly Color AccentPressed = Color.FromArgb(37, 99, 235);
+        public static readonly Color OnAccent = Color.FromArgb(255, 255, 255);
         public static readonly Color Success = Color.FromArgb(52, 211, 153);
         public static readonly Color Warning = Color.FromArgb(251, 191, 36);
         public static readonly Color Danger = Color.FromArgb(248, 113, 113);
@@ -197,35 +197,32 @@ namespace MPFever
             switch (Kind)
             {
                 case ButtonKind.Primary:
-                    fill = !en ? Theme.Raised : down ? Theme.AccentPressed : hover ? Theme.AccentHover : Theme.Accent;
+                    fill = !en ? Theme.Surface : down ? Theme.AccentPressed : hover ? Theme.AccentHover : Theme.Accent;
                     fore = en ? Theme.OnAccent : Theme.Faint;
                     break;
                 case ButtonKind.Segment:
                     if (active && en)
                     {
-                        fill = Theme.Mix(Theme.Raised, Theme.Accent, hover ? 0.30f : 0.22f);
-                        fore = Theme.AccentHover;
-                        border = Theme.Mix(Theme.Raised, Theme.Accent, 0.6f);
+                        fill = down ? Theme.AccentPressed : hover ? Theme.AccentHover : Theme.Accent;
+                        fore = Theme.OnAccent;
                     }
                     else
                     {
-                        fill = !en ? Theme.Mix(Theme.Surface, Theme.Raised, 0.5f) : down ? Theme.Border : hover ? Theme.RaisedHover : Theme.Raised;
+                        fill = !en ? Theme.Surface : down ? Theme.Border : hover ? Theme.RaisedHover : Theme.Raised;
                         fore = en ? Theme.Text : Theme.Faint;
                     }
                     break;
                 case ButtonKind.Ghost:
                     fill = en && (hover || down) ? Theme.Raised : Color.Transparent;
                     fore = !en ? Theme.Faint : hover ? Theme.Text : Theme.Muted;
-                    border = Theme.Border;
                     break;
                 default:
-                    fill = !en ? Theme.Mix(Theme.Surface, Theme.Raised, 0.5f) : down ? Theme.Border : hover ? Theme.RaisedHover : Theme.Raised;
+                    fill = !en ? Theme.Surface : down ? Theme.Border : hover ? Theme.RaisedHover : Theme.Raised;
                     fore = en ? Theme.Text : Theme.Faint;
-                    border = en ? Theme.Border : Color.Transparent;
                     break;
             }
             if (Focused && ShowFocusCues && en) border = Theme.Accent;
-            Theme.Box(e.Graphics, this, Theme.BackOf(this), fill, border, Theme.S(7));
+            Theme.Box(e.Graphics, this, Theme.BackOf(this), fill, border, Height / 2);
             var area = ClientRectangle;
             if (Globe)
             {
@@ -261,7 +258,7 @@ namespace MPFever
         }
 
         protected override void OnPaintBackground(PaintEventArgs e) =>
-            Theme.Box(e.Graphics, this, Theme.BackOf(this), Theme.Surface, Theme.Border, Theme.S(12));
+            Theme.Box(e.Graphics, this, Theme.BackOf(this), BackColor, Color.Transparent, Theme.S(18));
     }
 
     /// <summary>A borderless text box or number box inside a rounded field that lights up when focused.</summary>
@@ -311,13 +308,15 @@ namespace MPFever
     sealed class StatTile : Control
     {
         readonly string title;
+        readonly bool elevated;
         string value = "—", detail = "";
         Color dot = Theme.Faint, valueColor = Theme.Text;
-        readonly Font titleFont = Theme.Semibold(8f), valueFont = Theme.Semibold(16f), detailFont = Theme.Ui(8.5f);
+        readonly Font titleFont = Theme.Ui(8.75f), valueFont = Theme.Semibold(17f), detailFont = Theme.Ui(8.5f);
 
-        public StatTile(string title)
+        public StatTile(string title, bool elevated = false)
         {
-            this.title = title.ToUpperInvariant();
+            this.title = title;
+            this.elevated = elevated;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
@@ -332,29 +331,48 @@ namespace MPFever
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            Theme.Box(g, this, Theme.BackOf(this), Theme.Surface, Theme.Border, Theme.S(12));
-            int x = Theme.S(16), w = Width - x - Theme.S(12);
-            int d = Theme.S(8);
-            using (var b = new SolidBrush(dot)) g.FillEllipse(b, x, Theme.S(17), d, d);
+            Color bg = elevated ? ForkBrand.SurfaceElevated : Theme.Surface;
+            Theme.Box(g, this, Theme.BackOf(this), bg, Color.Transparent, Theme.S(18));
+            int x = Theme.S(18), w = Width - Theme.S(36);
+            int d = Theme.S(7);
+            if (elevated)
+            {
+                int pw = Theme.S(24), ph = Theme.S(18);
+                var pr = new Rectangle(Width - x - pw, Theme.S(14), pw, ph);
+                using (var path = Theme.Round(pr, ph / 2f))
+                using (var pb = new SolidBrush(Theme.Mix(bg, dot, 0.18f)))
+                    g.FillPath(pb, path);
+                using (var b = new SolidBrush(dot))
+                    g.FillEllipse(b, pr.X + (pw - d) / 2f, pr.Y + (ph - d) / 2f, d, d);
+            }
+            else
+            {
+                using (var b = new SolidBrush(dot))
+                    g.FillEllipse(b, Width - x - d, Theme.S(18), d, d);
+            }
             var flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, title, titleFont, new Rectangle(x + d + Theme.S(8), Theme.S(12), w - d - Theme.S(8), Theme.S(18)), Theme.Muted, flags | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(g, value, valueFont, new Rectangle(x, Theme.S(34), w, Theme.S(32)), valueColor, flags);
-            TextRenderer.DrawText(g, detail, detailFont, new Rectangle(x, Height - Theme.S(28), w, Theme.S(18)), Theme.Faint, flags);
+            TextRenderer.DrawText(g, title, titleFont, new Rectangle(x, Theme.S(13), w - Theme.S(28), Theme.S(18)), Theme.Muted, flags | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, value, valueFont, new Rectangle(x, Theme.S(36), w, Theme.S(34)), valueColor, flags);
+            TextRenderer.DrawText(g, detail, detailFont, new Rectangle(x, Height - Theme.S(28), w, Theme.S(18)), Theme.Muted, flags);
         }
     }
 
-    /// <summary>Top bar: logo, title, role and version badges.</summary>
+    /// <summary>Top bar: title, version and role pills, and right-aligned action tools.</summary>
     sealed class HeaderBar : Control
     {
         readonly string subtitle, version;
         readonly Control tool;
         string role = ""; Color roleColor = Theme.Faint;
-        readonly Font titleFont = Theme.Semibold(15f), subFont = Theme.Ui(9f), badgeFont = Theme.Semibold(8f), logoFont = Theme.Semibold(11f);
+        readonly Font titleFont = Theme.Semibold(16f), subFont = Theme.Ui(9f), badgeFont = Theme.Semibold(8f);
 
         public HeaderBar(string subtitle, string version, Control tool = null)
         {
             this.subtitle = subtitle; this.version = version; this.tool = tool;
-            if (tool != null) Controls.Add(tool);
+            if (tool != null)
+            {
+                Controls.Add(tool);
+                tool.SizeChanged += (s, e) => PerformLayout();
+            }
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.Bg;
             Height = Theme.S(76);
@@ -364,7 +382,7 @@ namespace MPFever
         {
             base.OnLayout(e);
             if (tool is ModernButton b) b.Fit(24);
-            if (tool != null) tool.Location = new Point(Width - Theme.S(22) - tool.Width, (Height - tool.Height) / 2);
+            if (tool != null) tool.Location = new Point(Math.Max(Theme.S(24), Width - Theme.S(24) - tool.Width), (Height - tool.Height) / 2);
         }
 
         public void SetRole(string text, Color color)
@@ -378,38 +396,27 @@ namespace MPFever
             var g = e.Graphics;
             g.Clear(Theme.Bg);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            int pad = Theme.S(22), logo = Theme.S(42);
-            var lr = new Rectangle(pad, (Height - logo) / 2, logo, logo);
-            using (var path = Theme.Round(lr, Theme.S(11)))
-            using (var b = new LinearGradientBrush(lr, Theme.AccentHover, Theme.AccentPressed, 45f))
-                g.FillPath(b, path);
-            TextRenderer.DrawText(g, "MP", logoFont, lr, Theme.OnAccent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-
-            int tx = lr.Right + Theme.S(14);
+            int tx = Theme.S(24);
             var flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, "MPFever", titleFont, new Point(tx, Height / 2 - Theme.S(23)), Theme.Text, flags);
-            TextRenderer.DrawText(g, subtitle, subFont, new Point(tx + Theme.S(1), Height / 2 + Theme.S(4)), Theme.Muted, flags);
-
-            int right = tool != null ? tool.Left - Theme.S(10) : Width - pad;
-            right = Badge(g, version, right, Theme.Muted, Theme.Raised, Theme.Border) - Theme.S(8);
-            if (role != "") Badge(g, role, right, roleColor, Theme.Mix(Theme.Bg, roleColor, 0.14f), Theme.Mix(Theme.Bg, roleColor, 0.45f));
-
-            using (var pen = new Pen(Theme.Border)) g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
+            TextRenderer.DrawText(g, ForkBrand.AppName, titleFont, new Point(tx, Height / 2 - Theme.S(23)), Theme.Text, flags);
+            int tw = TextRenderer.MeasureText(ForkBrand.AppName, titleFont, Size.Empty, flags).Width;
+            int bx = tx + tw + Theme.S(10), cy = Height / 2 - Theme.S(11);
+            bx = BadgeLeft(g, version, bx, cy, Theme.Muted, ForkBrand.PillBg) + Theme.S(6);
+            if (role != "") BadgeLeft(g, role, bx, cy, roleColor, Theme.Mix(Theme.Bg, roleColor, 0.16f));
+            TextRenderer.DrawText(g, subtitle, subFont, new Point(tx, Height / 2 + Theme.S(5)), Theme.Muted, flags);
         }
 
-        /// <summary>Pill ending at <paramref name="right"/>; returns its left edge.</summary>
-        int Badge(Graphics g, string text, int right, Color fore, Color fill, Color border)
+        /// <summary>Pill starting at <paramref name="left"/>; returns its right edge.</summary>
+        int BadgeLeft(Graphics g, string text, int left, int cy, Color fore, Color fill)
         {
             var size = TextRenderer.MeasureText(text, badgeFont, Size.Empty, TextFormatFlags.NoPadding);
-            int h = Theme.S(26), w = size.Width + Theme.S(22);
-            var r = new Rectangle(right - w, (Height - h) / 2, w, h);
+            int h = Theme.S(22), w = size.Width + Theme.S(18);
+            var r = new Rectangle(left, cy - h / 2, w, h);
             using (var path = Theme.Round(r, h / 2f))
-            {
-                using (var b = new SolidBrush(fill)) g.FillPath(b, path);
-                using (var pen = new Pen(border)) g.DrawPath(pen, path);
-            }
+            using (var b = new SolidBrush(fill))
+                g.FillPath(b, path);
             TextRenderer.DrawText(g, text, badgeFont, r, fore, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            return r.Left;
+            return r.Right;
         }
     }
 

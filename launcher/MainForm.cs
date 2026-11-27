@@ -371,6 +371,7 @@ namespace MPFever
         readonly ModernButton x4Btn = new ModernButton(ButtonKind.Segment) { Text = "x4", Enabled = false };
         readonly ModernButton detBtn = new ModernButton(ButtonKind.Ghost) { Enabled = false };
         readonly ModernButton checkNowBtn = new ModernButton(ButtonKind.Ghost) { Enabled = false };
+        readonly ModernButton settingsBtn = new ModernButton(ButtonKind.Secondary);
         readonly ModernButton langBtn = new ModernButton(ButtonKind.Ghost) { Globe = true };
         readonly RichTextBox logBox = new RichTextBox { ReadOnly = true, BorderStyle = BorderStyle.None, ScrollBars = RichTextBoxScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono(9f), BackColor = Theme.Surface, ForeColor = Theme.Text, DetectUrls = false, WordWrap = true };
         readonly Label status = new Label { AutoSize = false, AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Text = T("Prêt.", "Ready."), ForeColor = Theme.Muted };
@@ -527,6 +528,7 @@ namespace MPFever
             startBtn.Click += (s, e) => StartSession();
             againBtn.Click += (s, e) => StartAgain(updateInstalled);
             launchBtn.Click += (s, e) => LaunchFromButton();
+            settingsBtn.Click += (s, e) => OpenSettings();
             autoLaunchBox.CheckedChanged += (s, e) => { if (autoLaunchShown) SaveSetting("autolaunch", autoLaunchBox.Checked ? "1" : "0"); };
             pauseBtn.Click += (s, e) => Pause(T("hôte", "host"));
             x1Btn.Click += (s, e) => SetSpeed(1, T("hôte", "host"));
@@ -554,7 +556,7 @@ namespace MPFever
             var S = (Func<int, int>)Theme.S;
             Theme.SetLanguage(L.Code);
             Font = Theme.Ui(9.75f);
-            Text = "MPFever " + Version + (ServerMode ? T(" – serveur dédié Transport Fever 3", " – Transport Fever 3 dedicated server")
+            Text = ForkBrand.AppName + " " + Version + (ServerMode ? T(" – serveur dédié Transport Fever 3", " – Transport Fever 3 dedicated server")
                                                        : T(" – multijoueur Transport Fever 3", " – Transport Fever 3 multiplayer"));
             hostBtn.Text = T("Héberger une partie", "Host a game");
             joinBtn.Text = T("Rejoindre par IP", "Join by IP");
@@ -572,96 +574,132 @@ namespace MPFever
             pauseBtn.Text = "❚❚  " + T("Pause", "Pause");
             detBtn.Text = T("Test déterminisme", "Determinism test");
             checkNowBtn.Text = L.Code == "pl" ? "Sprawdź teraz" : "Check now";
+            settingsBtn.Text = T("⚙ Réglages", "⚙ Settings");
             langBtn.Text = L.Name + "  ▾";
-            foreach (var b in new[] { hostBtn, joinBtn, localBtn, startBtn, againBtn, launchBtn, pauseBtn, x1Btn, x2Btn, x4Btn, detBtn, checkNowBtn, langBtn }) b.ResetFont();
+            foreach (var b in new[] { hostBtn, joinBtn, localBtn, startBtn, againBtn, launchBtn, pauseBtn, x1Btn, x2Btn, x4Btn, detBtn, checkNowBtn, settingsBtn, langBtn }) b.ResetFont();
             logBox.Font = Theme.Mono(9f);
 
-            header = new HeaderBar(T("Multijoueur pour Transport Fever 3", "Multiplayer for Transport Fever 3"), "v" + Version, langBtn);
+            bool showLeft = ServerMode || ConnCardOn;
+            Panel left = null;
+            Card session = null;
 
-            // ---- left column: connection + contextual help
-            var conn = new Card { };
-            var hostRow = new TableLayoutPanel { Height = S(62), ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
-            hostRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            hostRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(104)));
-            var hostField = Ui.Field(T("Adresse de l'hôte", "Host address"), hostBox);
-            var portField = Ui.Field(T("Port", "Port"), portBox);
-            hostField.Dock = portField.Dock = DockStyle.Fill;
-            hostField.Margin = new Padding(0, 0, S(10), 0);
-            portField.Margin = Padding.Empty;
-            hostRow.Controls.Add(hostField, 0, 0);
-            hostRow.Controls.Add(portField, 1, 0);
-            var connItems = new List<Control> {
-                Ui.Caption(T("Connexion", "Connection")),
-                Ui.Field(T("Votre nom", "Your name"), nameBox),
-                Ui.Gap(8), hostRow, Ui.Gap(16), hostBtn, Ui.Gap(8), joinBtn };
-            if (Dev) connItems.AddRange(new Control[] { Ui.Gap(8), localBtn });
-            Ui.StackTop(conn, connItems.ToArray());
-            Ui.FitHeight(conn);
+            if (!showLeft)
+            {
+                // Unified Header (Neo-Minimalist Bento): launch/session actions + Settings + Language live in the header
+                var headerTools = new FlowLayoutPanel
+                {
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    WrapContents = false,
+                    BackColor = Theme.Bg,
+                    Margin = Padding.Empty,
+                    Padding = Padding.Empty,
+                };
+                startBtn.Fit(34); startBtn.Margin = new Padding(0, 0, S(8), 0);
+                againBtn.Fit(34); againBtn.Margin = new Padding(0, 0, S(8), 0);
+                launchBtn.Fit(34); launchBtn.Margin = new Padding(0, 0, S(8), 0);
+                busyBar.Width = S(140); busyBar.Height = S(14); busyBar.Margin = new Padding(0, S(12), S(10), 0);
+                pauseBtn.Fit(26); pauseBtn.Margin = new Padding(0, 0, S(6), 0);
+                foreach (var b in new[] { x1Btn, x2Btn, x4Btn }) { b.Width = S(48); b.Margin = new Padding(0, 0, S(6), 0); }
+                settingsBtn.Fit(28); settingsBtn.Margin = new Padding(0, 0, S(8), 0);
+                langBtn.Height = S(38); langBtn.Fit(24); langBtn.Margin = Padding.Empty;
+                headerTools.Controls.AddRange(new Control[] { busyBar, launchBtn, startBtn, againBtn, pauseBtn, x1Btn, x2Btn, x4Btn });
+                if (Dev) { detBtn.Height = S(38); detBtn.Fit(); detBtn.Margin = new Padding(0, 0, S(8), 0); headerTools.Controls.Add(detBtn); }
+                headerTools.Controls.Add(settingsBtn);
+                headerTools.Controls.Add(langBtn);
+                header = new HeaderBar(ForkBrand.Subtitle, Version, headerTools);
+            }
+            else
+            {
+                header = new HeaderBar(ForkBrand.Subtitle, Version, langBtn);
 
-            var info = new Card();
-            hint.Font = Theme.Ui(9.75f);
-            info.Controls.Add(hint);
-            Ui.StackTop(info, Ui.Caption(T("Que faire ?", "What next?")));
+                // ---- left column (dedicated server or --dev mode only)
+                var conn = new Card { };
+                var hostRow = new TableLayoutPanel { Height = S(62), ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
+                hostRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                hostRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(104)));
+                var hostField = Ui.Field(T("Adresse de l'hôte", "Host address"), hostBox);
+                var portField = Ui.Field(T("Port", "Port"), portBox);
+                hostField.Dock = portField.Dock = DockStyle.Fill;
+                hostField.Margin = new Padding(0, 0, S(10), 0);
+                portField.Margin = Padding.Empty;
+                hostRow.Controls.Add(hostField, 0, 0);
+                hostRow.Controls.Add(portField, 1, 0);
+                var connItems = new List<Control> {
+                    Ui.Caption(T("Connexion", "Connection")),
+                    Ui.Field(T("Votre nom", "Your name"), nameBox),
+                    Ui.Gap(8), hostRow, Ui.Gap(16), hostBtn, Ui.Gap(8), joinBtn };
+                if (Dev) connItems.AddRange(new Control[] { Ui.Gap(8), localBtn });
+                Ui.StackTop(conn, connItems.ToArray());
+                Ui.FitHeight(conn);
 
-            var left = new Panel { Dock = DockStyle.Left, Width = S(340), Padding = new Padding(0, 0, S(16), 0) };
-            info.Dock = DockStyle.Fill;
-            left.Controls.Add(info);
-            // a dedicated server: its settings and its buttons instead of host / join; (0.7.13) a player: the settings window,
-            // Ko-fi and Discord instead of host / join, which the game's Multiplayer page does (the old card: --dev, MPFEVER_CONNCARD=1)
-            Ui.StackTop(left, ServerMode ? BuildServerCard() : ConnCardOn ? conn : BuildLinksCard(), Ui.Gap(14));
+                var info = new Card();
+                hint.Font = Theme.Ui(9.75f);
+                info.Controls.Add(hint);
+                Ui.StackTop(info, Ui.Caption(T("Que faire ?", "What next?")));
 
-            // ---- right column: session controls, dashboard, log
-            var session = new Card { Height = S(74), Padding = new Padding(S(16), S(17), S(16), S(16)) };
-            var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
-            startBtn.Fit(40); startBtn.Margin = new Padding(0, 0, S(18), 0);
-            againBtn.Fit(40); againBtn.Margin = new Padding(0, 0, S(18), 0);
-            launchBtn.Fit(40); launchBtn.Margin = new Padding(0, 0, S(14), 0);
-            autoLaunchBox.Margin = new Padding(0, S(10), S(14), 0);
-            busyBar.Width = S(160); busyBar.Height = S(14); busyBar.Margin = new Padding(0, S(13), S(14), 0);
-            speedLabel = new Label { Text = T("VITESSE", "SPEED"), AutoSize = true, Font = Theme.Semibold(8f), ForeColor = Theme.Muted, Margin = new Padding(0, S(12), S(10), 0) };
-            pauseBtn.Fit(30); pauseBtn.Margin = new Padding(0, 0, S(4), 0);
-            foreach (var b in new[] { x1Btn, x2Btn, x4Btn }) { b.Width = S(52); b.Margin = new Padding(0, 0, S(4), 0); }
-            bar.Controls.AddRange(new Control[] { busyBar, launchBtn, autoLaunchBox, startBtn, againBtn, speedLabel, pauseBtn, x1Btn, x2Btn, x4Btn });
+                left = new Panel { Dock = DockStyle.Left, Width = S(340), Padding = new Padding(0, 0, S(16), 0) };
+                info.Dock = DockStyle.Fill;
+                left.Controls.Add(info);
+                Ui.StackTop(left, ServerMode ? BuildServerCard() : conn, Ui.Gap(14));
+
+                session = new Card { Height = S(74), Padding = new Padding(S(16), S(17), S(16), S(16)) };
+                var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
+                startBtn.Fit(40); startBtn.Margin = new Padding(0, 0, S(18), 0);
+                againBtn.Fit(40); againBtn.Margin = new Padding(0, 0, S(18), 0);
+                launchBtn.Fit(40); launchBtn.Margin = new Padding(0, 0, S(14), 0);
+                autoLaunchBox.Margin = new Padding(0, S(10), S(14), 0);
+                busyBar.Width = S(160); busyBar.Height = S(14); busyBar.Margin = new Padding(0, S(13), S(14), 0);
+                speedLabel = new Label { Text = T("VITESSE", "SPEED"), AutoSize = true, Font = Theme.Semibold(8f), ForeColor = Theme.Muted, Margin = new Padding(0, S(12), S(10), 0) };
+                pauseBtn.Fit(30); pauseBtn.Margin = new Padding(0, 0, S(4), 0);
+                foreach (var b in new[] { x1Btn, x2Btn, x4Btn }) { b.Width = S(52); b.Margin = new Padding(0, 0, S(4), 0); }
+                bar.Controls.AddRange(new Control[] { busyBar, launchBtn, autoLaunchBox, startBtn, againBtn, speedLabel, pauseBtn, x1Btn, x2Btn, x4Btn });
+                if (Dev) { detBtn.Height = S(38); detBtn.Fit(); detBtn.Margin = new Padding(S(14), 0, 0, 0); bar.Controls.Add(detBtn); }
+                session.Controls.Add(bar);
+            }
             ShowLaunchControls();
-            if (Dev) { detBtn.Height = S(38); detBtn.Fit(); detBtn.Margin = new Padding(S(14), 0, 0, 0); bar.Controls.Add(detBtn); }
-            session.Controls.Add(bar);
 
+            // ---- asymmetric Bento metrics row
             playersTile = new StatTile(T("Joueurs", "Players"));
             speedTile = new StatTile(T("Vitesse", "Speed"));
             actionsTile = new StatTile(T("Actions relayées", "Actions relayed"));
-            syncTile = new StatTile(T("Synchronisation", "Sync"));
-            var tiles = new TableLayoutPanel { Height = S(96), ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
+            syncTile = new StatTile(T("Synchronisation", "Sync"), elevated: true);
+            var tiles = new TableLayoutPanel { Height = S(104), ColumnCount = 4, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
             var tileList = new[] { playersTile, speedTile, actionsTile, syncTile };
+            var tileWidths = new[] { 20f, 20f, 20f, 40f };
             for (int i = 0; i < tileList.Length; i++)
             {
-                tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+                tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, tileWidths[i]));
                 tileList[i].Dock = DockStyle.Fill;
                 tileList[i].Margin = new Padding(0, 0, i < tileList.Length - 1 ? S(12) : 0, 0);
                 tiles.Controls.Add(tileList[i], i, 0);
             }
 
-            var logCard = new Card { Dock = DockStyle.Fill, Padding = new Padding(S(18), S(12), S(8), S(10)) };
-            var logHead = new Panel { Height = S(40) };
+            var logCard = new Card { Dock = DockStyle.Fill, Padding = new Padding(S(18), S(14), S(18), S(16)) };
+            var logHead = new Panel { Height = S(36) };
             var logTitle = Ui.Caption(T("Journal", "Log"));
-            logTitle.Dock = DockStyle.Left; logTitle.Width = S(160); logTitle.Padding = new Padding(0, S(8), 0, 0);
-            var tools = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, Padding = new Padding(0, 0, S(8), 0) };
+            logTitle.Dock = DockStyle.Left; logTitle.Width = S(160); logTitle.Padding = new Padding(0, S(6), 0, 0);
+            var tools = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, Padding = Padding.Empty };
             var clearBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Effacer", "Clear") }.Fit();
             var copyBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Copier", "Copy") }.Fit();
             var folderBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Dossier des journaux", "Logs folder") }.Fit();
             var reportBtn = new ModernButton(ButtonKind.Ghost) { Text = T("Signaler un problème", "Report a problem") }.Fit();
             reportBtn.Click += (s, e) => new Thread(() => Report(false)) { IsBackground = true, Name = "Report" }.Start();
             checkNowBtn.Fit();
-            foreach (var b in new[] { checkNowBtn, reportBtn, folderBtn, copyBtn, clearBtn }) { b.Margin = new Padding(S(6), 0, 0, 0); tools.Controls.Add(b); }
+            foreach (var b in new[] { checkNowBtn, folderBtn, copyBtn, clearBtn, reportBtn }) { b.Margin = new Padding(S(6), 0, 0, 0); tools.Controls.Add(b); }
             logHead.Controls.Add(logTitle);
             logHead.Controls.Add(tools);
-            logCard.Controls.Add(logBox);
+            logBox.BackColor = ForkBrand.LogBg;
+            var logWell = new Card { Dock = DockStyle.Fill, BackColor = ForkBrand.LogBg, Padding = new Padding(S(14), S(12), S(8), S(12)) };
+            logWell.Controls.Add(logBox);
+            logCard.Controls.Add(logWell);
             if (ServerMode)
             {
                 // the server console, under the log
                 logCard.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = S(8) });
                 logCard.Controls.Add(BuildCommandLine());
             }
-            Ui.StackTop(logCard, logHead, Ui.Gap(4));
+            Ui.StackTop(logCard, logHead, Ui.Gap(6));
             clearBtn.Click += (s, e) => { logBox.Clear(); logLines = 0; };
             copyBtn.Click += (s, e) => { try { if (logBox.TextLength > 0) Clipboard.SetText(logBox.Text); } catch { } };
             folderBtn.Click += (s, e) =>
@@ -672,86 +710,50 @@ namespace MPFever
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(logCard);
-            Ui.StackTop(right, session, Ui.Gap(14), tiles, Ui.Gap(14));
+            if (showLeft) Ui.StackTop(right, session, Ui.Gap(14), tiles, Ui.Gap(14));
+            else Ui.StackTop(right, tiles, Ui.Gap(14));
 
-            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(20), S(18), S(20), S(16)) };
+            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(24), S(12), S(24), S(16)) };
             body.Controls.Add(right);
-            body.Controls.Add(left);
+            if (showLeft) body.Controls.Add(left);
 
-            // ---- status bar
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = S(32), BackColor = Theme.Surface, Padding = new Padding(S(20), 0, S(20), 0) };
-            footer.Paint += (s, e) => { using (var p = new Pen(Theme.Border)) e.Graphics.DrawLine(p, 0, 0, footer.Width, 0); };
-            status.Font = Theme.Ui(9f);
+            // ---- clean status bar: game path on the left, fork credit on the right
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = S(34), BackColor = ForkBrand.LogBg, Padding = new Padding(S(24), 0, S(24), 0) };
+            footer.Paint += (s, e) => { using (var p = new Pen(ForkBrand.SubtleBorder)) e.Graphics.DrawLine(p, 0, 0, footer.Width, 0); };
+            gameLabel.Dock = DockStyle.Fill;
+            gameLabel.TextAlign = ContentAlignment.MiddleLeft;
             gameLabel.Font = Theme.Ui(8.5f);
-            const string author = "dkdknight";
+            gameLabel.ForeColor = Theme.Faint;
+
             var creditFont = Theme.Ui(8.5f);
-            var by = new Label { Text = "© by", AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleRight, Font = creditFont, ForeColor = Theme.Faint };
-            by.Width = TextRenderer.MeasureText(by.Text, creditFont).Width + S(16);
             var linkFont = Theme.Ui(8.5f, FontStyle.Underline);
-            var credit = new Label
+            Label MakeFooterText(string text)
             {
-                Text = author, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleLeft,
-                Font = creditFont, ForeColor = Theme.Accent, Cursor = Cursors.Hand,
-            };
-            credit.Padding = new Padding(S(3), 0, 0, 0);
-            credit.Width = TextRenderer.MeasureText(author, linkFont).Width + S(8);
-            new ToolTip().SetToolTip(credit, "github.com/dkdknight/MPFever");
-            credit.MouseEnter += (s, e) => { credit.Font = linkFont; credit.ForeColor = Theme.AccentHover; };
-            credit.MouseLeave += (s, e) => { credit.Font = creditFont; credit.ForeColor = Theme.Accent; };
-            credit.Click += (s, e) =>
+                var lbl = new Label { Text = text, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleCenter, Font = creditFont, ForeColor = Theme.Faint };
+                lbl.Width = TextRenderer.MeasureText(text, creditFont).Width + S(4);
+                return lbl;
+            }
+            Label MakeFooterLink(string text, string url, string tip)
             {
-                try { Process.Start("https://github.com/dkdknight/MPFever"); }
-                catch (Exception ex) { Log.W(ex.Message); }
-            };
-            // the settings window (session settings read only for a guest once joined)
-            var settingsText = T("⚙ Réglages", "⚙ Settings");
-            var settingsLink = new Label
-            {
-                Text = settingsText, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleRight,
-                Font = creditFont, ForeColor = Theme.Accent, Cursor = Cursors.Hand,
-            };
-            settingsLink.Width = TextRenderer.MeasureText(settingsText, linkFont).Width + S(16);
-            settingsLink.MouseEnter += (s, e) => { settingsLink.Font = linkFont; settingsLink.ForeColor = Theme.AccentHover; };
-            settingsLink.MouseLeave += (s, e) => { settingsLink.Font = creditFont; settingsLink.ForeColor = Theme.Accent; };
-            settingsLink.Click += (s, e) => OpenSettings();
-            var kofiText = T("♥ Soutenir MPFever", "♥ Support MPFever");
-            var kofi = new Label
-            {
-                Text = kofiText, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleRight,
-                Font = creditFont, ForeColor = Theme.Accent, Cursor = Cursors.Hand,
-            };
-            kofi.Width = TextRenderer.MeasureText(kofiText, linkFont).Width + S(16);
-            new ToolTip().SetToolTip(kofi, "ko-fi.com/knighthd");
-            kofi.MouseEnter += (s, e) => { kofi.Font = linkFont; kofi.ForeColor = Theme.AccentHover; };
-            kofi.MouseLeave += (s, e) => { kofi.Font = creditFont; kofi.ForeColor = Theme.Accent; };
-            kofi.Click += (s, e) =>
-            {
-                try { Process.Start("https://ko-fi.com/knighthd"); }
-                catch (Exception ex) { Log.W(ex.Message); }
-            };
-            // the community: players, help and news
-            const string discordText = "Discord";
-            var discord = new Label
-            {
-                Text = discordText, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleRight,
-                Font = creditFont, ForeColor = Theme.Accent, Cursor = Cursors.Hand,
-            };
-            discord.Width = TextRenderer.MeasureText(discordText, linkFont).Width + S(16);
-            new ToolTip().SetToolTip(discord, ThanksDialog.DiscordUrl.Replace("https://", ""));
-            discord.MouseEnter += (s, e) => { discord.Font = linkFont; discord.ForeColor = Theme.AccentHover; };
-            discord.MouseLeave += (s, e) => { discord.Font = creditFont; discord.ForeColor = Theme.Accent; };
-            discord.Click += (s, e) =>
-            {
-                try { Process.Start(ThanksDialog.DiscordUrl); }
-                catch (Exception ex) { Log.W(ex.Message); }
-            };
-            footer.Controls.Add(status);
+                var lbl = new Label { Text = text, AutoSize = false, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleCenter, Font = creditFont, ForeColor = Theme.Accent, Cursor = Cursors.Hand };
+                lbl.Width = TextRenderer.MeasureText(text, linkFont).Width + S(4);
+                new ToolTip().SetToolTip(lbl, tip);
+                lbl.MouseEnter += (s, e) => { lbl.Font = linkFont; lbl.ForeColor = Theme.AccentHover; };
+                lbl.MouseLeave += (s, e) => { lbl.Font = creditFont; lbl.ForeColor = Theme.Accent; };
+                lbl.Click += (s, e) => { try { Process.Start(url); } catch (Exception ex) { Log.W(ex.Message); } };
+                return lbl;
+            }
+
+            var by = MakeFooterText("by");
+            var forkCredit = MakeFooterLink(ForkBrand.AuthorName, ForkBrand.AuthorUrl, "github.com/Dan1el-19/MPFever");
+            var basedOn = MakeFooterText("based on");
+            var baseCredit = MakeFooterLink(ForkBrand.BaseAuthorName, ForkBrand.BaseAuthorUrl, "github.com/dkdknight/MPFever");
+
             footer.Controls.Add(gameLabel);
-            footer.Controls.Add(settingsLink);
-            footer.Controls.Add(discord);
-            footer.Controls.Add(kofi);
+            footer.Controls.Add(baseCredit);
+            footer.Controls.Add(basedOn);
+            footer.Controls.Add(forkCredit);
             footer.Controls.Add(by);
-            footer.Controls.Add(credit);   // docked first: rightmost
 
             Controls.Add(body);
             Controls.Add(footer);
@@ -1031,8 +1033,8 @@ namespace MPFever
             else h = !ConnCardOn ? PlayWhereText() : T("Hébergez une partie ou rejoignez un ami avec son adresse IP.\n\nPort par défaut : 28090 (TCP). Pour jouer par Internet, l'hôte doit rediriger ce port sur sa box.", "Host a game, or join a friend with their IP address.\n\nDefault port: 28090 (TCP). To play over the Internet, the host must forward this port on their router.");
             if (hint.Text != h) hint.Text = h;
 
-            string g = gameDir != null ? "Transport Fever 3 · " + gameDir : "";
-            if (gameLabel.Text != g) { gameLabel.Text = g; gameLabel.Width = g == "" ? 0 : TextRenderer.MeasureText(g, gameLabel.Font).Width + Theme.S(8); }
+            string g = gameDir ?? "";
+            if (gameLabel.Text != g) gameLabel.Text = g;
         }
 
         string PlayerName() => string.IsNullOrWhiteSpace(nameBox.Text) ? "Player" : nameBox.Text.Trim();
@@ -1367,7 +1369,7 @@ namespace MPFever
             busyBar.Visible = player && installing;
             launchBtn.Visible = player && waitingLaunch && !gameClosed;
             launchBtn.Enabled = !installing;
-            autoLaunchBox.Visible = player && MenuModeDefault && (waitingLaunch || installing) && !gameClosed;
+            autoLaunchBox.Visible = (ServerMode || ConnCardOn) && player && MenuModeDefault && (waitingLaunch || installing) && !gameClosed;
             startBtn.Visible = !ServerMode && !gameClosed && !waitingLaunch && !installing;   // (a server starts its world by itself)
             againBtn.Visible = !ServerMode && gameClosed;
             // (0.7.4: no game yet, the speed controls (off until a session starts) leave the room to the launch button and its box;
@@ -1375,6 +1377,7 @@ namespace MPFever
             bool speed = !(player && (waitingLaunch || installing) && !gameClosed);
             if (speedLabel != null) speedLabel.Visible = speed;
             pauseBtn.Visible = x1Btn.Visible = x2Btn.Visible = x4Btn.Visible = speed;
+            header?.PerformLayout();
         }
 
         /// <summary>(0.8.8, #294) MPFever.exe started without its files (no mod folder beside it, no copy of the mod in the game):
