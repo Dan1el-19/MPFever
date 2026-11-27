@@ -361,7 +361,7 @@ namespace MPFever
             update = u;
             this.auto = auto;
             var S = (Func<int, int>)Theme.S;
-            Text = "MPFever";
+            Text = ForkBrand.AppName;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             ShowInTaskbar = false;
@@ -400,7 +400,7 @@ namespace MPFever
             skipBtn.Text = T("Continuer sans mettre à jour", "Continue without updating");
             updateBtn.Fit(40);
             skipBtn.Fit();
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(40), FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(42), FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty, Padding = new Padding(0, S(2), 0, S(2)) };
             updateBtn.Margin = Padding.Empty;
             skipBtn.Margin = new Padding(0, 0, S(10), 0);
             buttons.Controls.Add(updateBtn);

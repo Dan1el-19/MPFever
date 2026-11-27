@@ -15,13 +15,13 @@ end
 
 -- Midnight Cobalt Neo-Minimalist Bento palette (matches launcher/Ui.cs & launcher/ForkBrand.cs)
 SF.PALETTE = {
-	Ok = { 0.133, 0.773, 0.369, 1 },
-	Warning = { 0.961, 0.620, 0.043, 1 },
-	Error = { 0.937, 0.267, 0.267, 1 },
-	Info = { 0.231, 0.510, 0.965, 1 },
+	Ok = { 0.290, 0.871, 0.502, 1 },
+	Warning = { 0.984, 0.749, 0.141, 1 },
+	Error = { 0.973, 0.443, 0.443, 1 },
+	Info = { 0.376, 0.647, 0.980, 1 },
 	Positive = { 0.376, 0.647, 0.980, 1 },
 	Negative = { 0.973, 0.443, 0.443, 1 },
-	Orange = { 0.976, 0.451, 0.086, 1 },
+	Orange = { 0.984, 0.573, 0.235, 1 },
 
 	NeutralMedium = { 0.353, 0.400, 0.490, 1 },
 	NeutralLight = { 0.557, 0.608, 0.698, 1 },
@@ -42,6 +42,16 @@ SF.PALETTE = {
 	AccentVeryLight = { 0.376, 0.647, 0.980, 1 },
 
 	PillBg = { 0.086, 0.114, 0.173, 1 },
+	WindowBg = { 0.051, 0.067, 0.102, 0.94 },
+}
+
+local CLS_COLOR = {
+	success = "Ok",
+	warning = "Warning",
+	error = "Error",
+	info = "Info",
+	negative = "Negative",
+	positive = "Positive",
 }
 
 local function cloneRgba(raw, alpha)
@@ -54,15 +64,28 @@ local function makeVec4f(raw, alpha)
 	return ok and v or nil
 end
 
+local function hBox(K, children, w)
+	return K.box(children, { size = { math.max(16, math.floor(w)), -1 } }, K.H)
+end
+
+local function vDot(K, kindOrColor, size, topPad, isColorName)
+	local dot = isColorName and K.disc(kindOrColor, size) or K.dot(kindOrColor, size)
+	return K.col { K.gap(1, topPad or 3), dot }
+end
+
+local function clsColorName(cls)
+	return CLS_COLOR[cls or ""] or "NeutralLightest"
+end
+
 function SF.applyKit(U, C)
 	if not SF.enabled() or not U or not U.kit or U.kit.__sfApplied then return end
 	local K = U.kit
 	K.__sfApplied = true
 	U.brandName = SF.BRAND
 
-	-- Ultra-Compact Quick View measures (420px HUD)
-	K.WIN_W, K.BODY_H, K.INNER_W, K.TEXT_W = 420, 340, 404, 392
-	K.CARD_W, K.CARD_TEXT_W = 392, 372
+	-- Ultra-Compact Quick View measures (416px HUD; scrolled tabs use 400px inner width)
+	K.WIN_W, K.BODY_H, K.INNER_W, K.TEXT_W = 416, 290, 400, 396
+	K.CARD_W, K.CARD_TEXT_W = 400, 376
 
 	local origRgba = K.rgba
 	local origColor = K.color
@@ -90,20 +113,20 @@ function SF.applyKit(U, C)
 		K.PANELS.card = { "BaseMedium", nil, "BaseVeryLight" }
 		K.PANELS.inner = { "BaseDark", nil, "BaseVeryLight" }
 		K.PANELS.mine = { "AccentVeryDark", nil, "AccentLight" }
-		K.PANELS.elevated = { "BaseLightMedium", nil, "AccentLight", 0.45 }
-		K.PANELS.sunken = { "BaseDark", nil, "BaseVeryLight", 0.75 }
+		K.PANELS.elevated = { "BaseLightMedium", nil, "AccentLight", 0.26 }
+		K.PANELS.sunken = { "BaseDark", nil, "BaseVeryLight", 0.70 }
 	end
 
 	-- 9-patch card helper usable in both Quick View and Hub
 	K.sfCard = function(kind, children, width, pad)
-		local st = K.panel(kind or "card", { size = { width or K.CARD_W, -1 }, padding = pad or { 8, 10, 8, 10 } })
+		local st = K.panel(kind or "card", { size = { width or K.CARD_W, -1 }, padding = pad or { 8, 12, 8, 12 } })
 		return K.box(children, st, K.V)
 	end
 
-	-- Window container padding + Midnight Cobalt backdrop (#0A0D14)
+	-- Window container padding + translucent Midnight Cobalt backdrop (#0D111A @ 94%)
 	K.padded = function(content)
 		if os.getenv("MPFEVER_WINPAD") == "0" or content == nil then return content end
-		K.sfPadStyle = K.sfPadStyle or K.style { padding = { 8, 10, 10, 10 }, background = SF.PALETTE.BaseVeryDark }
+		K.sfPadStyle = K.sfPadStyle or K.style { padding = { 8, 10, 10, 10 }, background = SF.PALETTE.WindowBg }
 		return K.builtin.Component { meta = { styleSheet = K.sfPadStyle }, layout = K.col { content } }
 	end
 
@@ -180,6 +203,52 @@ local function shortSyncLine(st, T, sfT, sfTf)
 	return sfT("Non vérifiée", "Not checked"), nil
 end
 
+local function compactPlayerName(pl, me, T, sfT, sfTf)
+	local text = pl.name or "?"
+	local tags = {}
+	if pl.id == me then tags[#tags + 1] = sfT("vous", "you") end
+	if pl.role == "host" then tags[#tags + 1] = T("hôte", "host") end
+	if #tags > 0 then text = text .. " (" .. table.concat(tags, " · ") .. ")" end
+	local st = pl.state or "ok"
+	if st == "loading" or st == "joining" then
+		if pl.pct then return text .. " · " .. sfTf("%s%%", "%s%%", pl.pct), "info" end
+		return text .. " · " .. sfT("charge…", "loading…"), "info"
+	elseif st == "away" then
+		return text .. " · " .. sfTf("absent %s s", "away %s s", pl.lag or 0), "warning"
+	elseif st == "noresp" then
+		return text .. " · " .. sfT("ne répond pas", "no response"), "error"
+	elseif st == "left" then
+		return text .. " · " .. sfT("a quitté", "left"), "negative"
+	end
+	return text, nil
+end
+
+local function playerPaceText(U, pl)
+	if pl.state == "left" then return "—", "NeutralLight" end
+	local pColor = "NeutralLight"
+	if U.perfSign then
+		local c = U.perfSign(pl)
+		if type(c) == "string" and c ~= "" then pColor = c end
+	end
+	if pl.fps and pl.pace then
+		return tostring(pl.fps) .. " · " .. tostring(pl.pace) .. "%", pColor
+	elseif pl.fps then
+		return tostring(pl.fps) .. " FPS", pColor
+	elseif pl.pace then
+		return tostring(pl.pace) .. "%", pColor
+	end
+	return "—", "NeutralLight"
+end
+
+local function sessionNeedsScroll(st)
+	if st and (st.pending or "") ~= "" then return true end
+	local n = 0
+	for _, pl in ipairs(st and st.players or {}) do
+		if pl.role ~= "server" then n = n + 1 end
+	end
+	return n > 6
+end
+
 function SF.applySession(U, C, deps)
 	if not SF.enabled() or not U or U.__sfSessionApplied then return end
 	U.__sfSessionApplied = true
@@ -194,7 +263,6 @@ function SF.applySession(U, C, deps)
 	local syncLine = deps.syncLine
 	local linkLine = deps.linkLine
 	local playerCount = deps.playerCount or countActivePlayers
-	local playerLine = deps.playerLine
 	local requestInvite = deps.requestInvite
 	local requestReport = deps.requestReport
 	local sendLine = deps.sendLine
@@ -240,6 +308,56 @@ function SF.applySession(U, C, deps)
 		end
 	end
 
+	-- Sleek segmented tab strip for Quick View (replaces chunky native TabWidget)
+	local origTabStrip = U.tabStrip
+	U.tabStrip = function(K, tabs, cur)
+		if K.hub() or U.hubDrawing or os.getenv("MPFEVER_WINTABS") == "native" then
+			return origTabStrip(K, tabs, cur)
+		end
+		local builtin = K.builtin
+		local TBG = nil
+		pcall(function() TBG = builtin.ToggleButtonGroup end)
+		local out = {}
+		if TBG and #tabs >= 1 then
+			local perRow = 4
+			local first = 1
+			while first <= #tabs do
+				local last = math.min(#tabs, first + perRow - 1)
+				local at = first
+				local buttons = {}
+				local sel = -1
+				for j = first, last do
+					local id = tabs[j]
+					if id == cur then sel = j - first + 1 end
+					buttons[#buttons + 1] = { content = K.text(U.tabLabel(id)), meta = {} }
+				end
+				if #out > 0 then out[#out + 1] = K.gap(1, 4) end
+				out[#out + 1] = TBG {
+					meta = { localKey = "mpfever-sf-tabs-" .. tostring(#tabs) .. "-" .. at .. "-" .. #buttons },
+					buttons = buttons,
+					selected = sel,
+					deselectAllowed = false,
+					onValueChange = function(index)
+						index = tonumber(index)
+						local picked = index and tabs[at + index - 1] or nil
+						if picked and picked ~= U.tab then U.setTab(picked) end
+					end,
+				}
+				first = last + 1
+			end
+		else
+			local r = {}
+			for i, id in ipairs(tabs) do
+				if i > 1 then r[#r + 1] = K.gap(4, 1) end
+				r[#r + 1] = K.btn(U.tabLabel(id), nil, function() U.setTab(id) end, id == cur)
+			end
+			out[#out + 1] = K.row(r)
+		end
+		out[#out + 1] = K.gap(1, 5)
+		out[#out + 1] = K.rect(K.WIN_W, 1, SF.PALETTE.BaseVeryLight)
+		return K.col(out)
+	end
+
 	-- Ultra-Compact 240px Card
 	U.compactContent = function(K, st)
 		local CW = 216
@@ -247,8 +365,10 @@ function SF.applySession(U, C, deps)
 		local fullTip = select(1, syncLine(st))
 		local link, linkCls = linkLine(st)
 		local cardRows = {}
-		if link then cardRows[#cardRows + 1] = K.row { K.dot(linkCls, 10), K.gap(5, 1), K.text(link, nil, linkCls, CW - 16) } end
-		cardRows[#cardRows + 1] = K.row { K.dot(sCls, 11), K.gap(6, 1), K.text(sText, nil, sCls, CW - 18) }
+		if link then
+			cardRows[#cardRows + 1] = K.row { vDot(K, linkCls, 9, 4), K.gap(6, 1), K.colored(link, K.color(clsColorName(linkCls)), CW - 16) }
+		end
+		cardRows[#cardRows + 1] = K.row { vDot(K, sCls, 10, 3), K.gap(6, 1), K.colored(sText, K.color(clsColorName(sCls)), CW - 18) }
 		local spd = tonumber(st and st.speed)
 		local spdStr = (st and st.started == "1" and spd ~= nil) and ("  ·  " .. (spd == 0 and "II" or ("x" .. spd))) or ""
 		cardRows[#cardRows + 1] = K.muted(T("Joueurs", "Players") .. " (" .. playerCount(st) .. ")" .. spdStr, CW)
@@ -269,7 +389,7 @@ function SF.applySession(U, C, deps)
 		}
 	end
 
-	-- Ultra-Compact Quick View Header + Body (420px)
+	-- Ultra-Compact Quick View Header + Body (416px)
 	U.windowContent = function(K, st, chat, ctx)
 		local builtin = K.builtin
 		if U.compact then return U.compactContent(K, st) end
@@ -293,6 +413,8 @@ function SF.applySession(U, C, deps)
 		local body
 		if tab == "chat" then
 			body = builtin.Component { meta = { localKey = "mpfever-body-chat", styleSheet = K.style { size = { K.WIN_W, K.BODY_H } } }, layout = K.col(rows) }
+		elseif tab == "session" and not sessionNeedsScroll(st) then
+			body = builtin.Component { meta = { localKey = "mpfever-body-session", styleSheet = K.style { size = { K.WIN_W, -1 } } }, layout = K.col(rows) }
 		else
 			body = builtin.ScrollArea {
 				meta = { localKey = "mpfever-body-" .. tab, styleSheet = K.style { size = { K.WIN_W, K.BODY_H } } },
@@ -303,84 +425,146 @@ function SF.applySession(U, C, deps)
 		end
 
 		local hasHub = U.HubWindow and U.hubOn()
-		local topRow = {
-			K.muted(hostSummary(st, sfT, Tf), K.WIN_W - (hasHub and 138 or 78)),
+		local rightBtnsW = hasHub and 116 or 58
+		local topChildren = {
+			hBox(K, { K.muted(hostSummary(st, sfT, Tf), K.WIN_W - rightBtnsW - 6) }, K.WIN_W - rightBtnsW),
 			K.btn(sfT("Mini", "Mini"), sfT("Une petite carte : la synchronisation, les joueurs et la discussion", "Compact card: sync, players and chat"), function() U.setCompact(true) end),
 		}
 		if hasHub then
-			topRow[#topRow + 1] = K.gap(4, 1)
-			topRow[#topRow + 1] = K.btn("Hub", U.hubTip(), function() U.openHub() end, true)
+			topChildren[#topChildren + 1] = K.gap(4, 1)
+			topChildren[#topChildren + 1] = K.btn("Hub", U.hubTip(), function() U.openHub() end, true)
 		end
 
 		return builtin.Component {
 			meta = { styleSheet = K.style { size = { K.WIN_W, -1 } } },
-			layout = K.col { K.row(topRow), K.gap(1, 6), U.tabStrip(K, tabs, tab), K.gap(1, 6), body },
+			layout = K.col { K.row(topChildren), K.gap(1, 6), U.tabStrip(K, tabs, tab), K.gap(1, 7), body },
 		}
 	end
 
-	-- Ultra-Compact Session Tab (Quick View: 420px; Hub keeps original carded layout)
+	-- Ultra-Compact Session Tab (Quick View: 416px auto-height; Hub keeps original carded layout)
 	local origSession = U.TABS.session
 	U.TABS.session = function(K, st, ctx)
 		if K.hub() or U.hubDrawing then return origSession(K, st, ctx) end
 
+		local cardW = sessionNeedsScroll(st) and K.INNER_W or K.WIN_W
+		local W = cardW - 24
 		local rows = {}
-		local W = K.CARD_TEXT_W
 		local link, linkCls = linkLine(st)
 		if link then
 			local lPanel = (linkCls == "error" or linkCls == "warning" or linkCls == "info") and linkCls or "sunken"
-			rows[#rows + 1] = K.sfCard(lPanel, { K.row { K.dot(linkCls, 11), K.gap(6, 1), K.text(link, nil, linkCls, W - 20) } }, K.CARD_W, { 6, 10, 6, 10 })
+			rows[#rows + 1] = K.sfCard(lPanel, { K.row { vDot(K, linkCls, 10, 4), K.gap(6, 1), K.colored(link, K.color(clsColorName(linkCls)), W - 18) } }, cardW, { 6, 12, 6, 12 })
 			rows[#rows + 1] = K.gap(1, 6)
 		end
 
-		-- Unified Status + Speed elevated Bento card
+		-- Card 1: Unified Status + Speed (ToggleButtonGroup) in elevated Bento card
 		local sShort, sCls = shortSyncLine(st, T, sfT, sfTf)
 		local sFull = select(1, syncLine(st))
 		local showSpeed = U.installed and st and st.started == "1"
+		local speedW = 132
+		local leftSyncW = showSpeed and (W - speedW - 4) or W
 		local statusRow = {
-			K.dot(sCls, 12),
-			K.gap(6, 1),
-			K.text(sShort, nil, sCls, showSpeed and (W - 190) or (W - 22)),
+			hBox(K, {
+				vDot(K, sCls, 10, 4),
+				K.gap(7, 1),
+				K.colored(sShort, K.color(clsColorName(sCls)), leftSyncW - 18),
+			}, leftSyncW),
 		}
 		if showSpeed then
 			local cur = tonumber(st.speed)
-			for i, v in ipairs({ 0, 1, 2, 4 }) do
-				if i > 1 then statusRow[#statusRow + 1] = K.gap(3, 1) end
-				statusRow[#statusRow + 1] = K.btn(v == 0 and "II" or ("x" .. v), v == 0 and T("Pause", "Pause") or ("x" .. v), function() U.setSpeed(v) end, cur == v)
+			local speeds = { 0, 1, 2, 4 }
+			local TBG = nil
+			pcall(function() TBG = K.builtin.ToggleButtonGroup end)
+			if TBG then
+				local sel = -1
+				local btns = {}
+				for i, v in ipairs(speeds) do
+					if cur == v then sel = i end
+					btns[#btns + 1] = {
+						content = K.text(v == 0 and "II" or ("x" .. v)),
+						meta = { tooltip = v == 0 and T("Pause", "Pause") or ("x" .. v) },
+					}
+				end
+				statusRow[#statusRow + 1] = K.gap(4, 1)
+				statusRow[#statusRow + 1] = TBG {
+					meta = { localKey = "mpfever-sf-speed" },
+					buttons = btns,
+					selected = sel,
+					deselectAllowed = false,
+					onValueChange = function(index)
+						index = tonumber(index)
+						local v = index and speeds[index] or nil
+						if v ~= nil and v ~= cur then U.setSpeed(v) end
+					end,
+				}
+			else
+				for i, v in ipairs(speeds) do
+					statusRow[#statusRow + 1] = K.gap(i == 1 and 4 or 3, 1)
+					statusRow[#statusRow + 1] = K.btn(v == 0 and "II" or ("x" .. v), v == 0 and T("Pause", "Pause") or ("x" .. v), function() U.setSpeed(v) end, cur == v)
+				end
 			end
 		end
 		local syncCardRows = { K.row(statusRow) }
 		local desyncs, resyncs = tonumber(st and st.desyncs) or 0, tonumber(st and st.resyncs) or 0
-		if desyncs > 0 or resyncs > 0 then
+		local syncState = st and st.sync or "none"
+		if desyncs > 0 or (resyncs > 0 and syncState ~= "ok") then
 			syncCardRows[#syncCardRows + 1] = K.muted(sfTf("%s désynchro(s) · %s resynchro(s)", "%s desync(s) · %s resync(s)", desyncs, resyncs), W)
 		end
-		rows[#rows + 1] = K.sfCard("elevated", syncCardRows, K.CARD_W, { 8, 10, 8, 10 })
+		rows[#rows + 1] = K.sfCard("elevated", syncCardRows, cardW, { 8, 12, 8, 12 })
 		rows[#rows + 1] = K.gap(1, 6)
 
-		-- Players Bento card
+		-- Card 2: Players Bento card with right-aligned FPS/Pace column & optional header Invite button
+		local canInvite = st and st.invite == "1" and U.isHost(st)
+		local rightHdrW = canInvite and 72 or 78
+		local pHeadRight = canInvite
+			and K.btn(sfT("Inviter", "Invite"), T("Inviter des amis Steam", "Invite Steam friends"), requestInvite, false)
+			or K.muted(sfT("FPS · Rythme", "FPS · Pace"), rightHdrW)
 		local pRows = {
 			K.row {
-				K.text(T("Joueurs", "Players") .. " (" .. playerCount(st) .. ")", "font-scale-title-4", nil, W - 90),
-				K.muted(sfT("Sync · Rythme", "Sync · Pace"), 90),
+				hBox(K, { K.colored(T("Joueurs", "Players") .. " (" .. playerCount(st) .. ")", K.color("NeutralLight"), W - rightHdrW - 6, "font-scale-headline") }, W - rightHdrW),
+				pHeadRight,
 			},
+			K.gap(1, 2),
 		}
 		local kick = st and st.pubkick == "1" and U.isHost(st)
 		for _, pl in ipairs(st and st.players or {}) do
 			if pl.role ~= "server" then
-				local line, cls = playerLine(pl, st.me)
-				local signs = pl.state ~= "left" and U.playerSigns and U.playerSigns(K, pl, st) or nil
+				local pLabel, pCls = compactPlayerName(pl, st.me, T, sfT, sfTf)
+				local sc, sTip = "Ok", ""
+				if U.syncSign then sc, sTip = U.syncSign(pl, st) end
+				local pc, pTip = "NeutralLight", ""
+				if U.perfSign then pc, pTip = U.perfSign(pl) end
+				local showSigns = pl.state ~= "left" and U.signsOn ~= false
+				local dotNodes
+				if showSigns then
+					dotNodes = K.row {
+						K.builtin.Component { meta = { tooltip = sTip }, layout = vDot(K, sc, 10, 4, true) },
+						K.gap(4, 1),
+						K.builtin.Component { meta = { tooltip = pTip }, layout = vDot(K, pc, 10, 4, true) },
+					}
+				else
+					dotNodes = vDot(K, pl.state == "left" and "NeutralMedium" or "Info", 10, 4, true)
+				end
+				local dotsW = showSigns and 30 or 16
 				if kick and pl.role ~= "host" and pl.state ~= "left" then
 					local who = pl.name
-					local r = {}
-					if signs then r[#r + 1] = signs; r[#r + 1] = K.gap(6, 1) end
-					r[#r + 1] = K.text(line, nil, cls, W - (signs and 180 or 146))
-					r[#r + 1] = K.btn(sfT("Excl.", "Kick"), nil, function() U.menuRequest("kick", who) end)
-					r[#r + 1] = K.gap(4, 1)
-					r[#r + 1] = K.btn(sfT("Ban.", "Ban"), nil, function() U.menuRequest("ban", who) end)
-					pRows[#pRows + 1] = K.row(r)
-				elseif signs then
-					pRows[#pRows + 1] = K.row { signs, K.gap(6, 1), K.text(line, nil, cls, W - 36) }
+					local kickW = 114
+					local leftW = W - kickW
+					local nameNode = pCls and K.colored(pLabel, K.color(clsColorName(pCls)), leftW - dotsW - 4) or K.text(pLabel, nil, nil, leftW - dotsW - 4)
+					pRows[#pRows + 1] = K.row {
+						hBox(K, { dotNodes, K.gap(6, 1), nameNode }, leftW),
+						K.btn(sfT("Excl.", "Kick"), nil, function() U.menuRequest("kick", who) end),
+						K.gap(4, 1),
+						K.btn(sfT("Ban.", "Ban"), nil, function() U.menuRequest("ban", who) end),
+					}
 				else
-					pRows[#pRows + 1] = K.row { K.icon(K.ICON_PERSON, 18), K.gap(6, 1), K.text(line, nil, cls, W - 26) }
+					local metricW = 78
+					local leftW = W - metricW
+					local nameNode = pCls and K.colored(pLabel, K.color(clsColorName(pCls)), leftW - dotsW - 4) or K.text(pLabel, nil, nil, leftW - dotsW - 4)
+					local paceTxt, paceCol = playerPaceText(U, pl)
+					pRows[#pRows + 1] = K.row {
+						hBox(K, { dotNodes, K.gap(6, 1), nameNode }, leftW),
+						hBox(K, { K.colored(paceTxt, K.color(paceCol), metricW) }, metricW),
+					}
 				end
 			end
 		end
@@ -388,7 +572,7 @@ function SF.applySession(U, C, deps)
 			for who in st.pending:gmatch("[^,]+") do
 				local id = who
 				pRows[#pRows + 1] = K.gap(1, 4)
-				pRows[#pRows + 1] = K.text(sfTf("%s veut rejoindre", "%s wants to join", (id:gsub("#%d+$", ""))), nil, "warning", W)
+				pRows[#pRows + 1] = K.colored(sfTf("%s veut rejoindre", "%s wants to join", (id:gsub("#%d+$", ""))), K.color("Warning"), W)
 				pRows[#pRows + 1] = K.row {
 					K.btn(T("Accepter", "Accept"), nil, function() U.menuRequest("admit", id .. " 1") end, true),
 					K.gap(4, 1),
@@ -396,14 +580,10 @@ function SF.applySession(U, C, deps)
 				}
 			end
 		end
-		if st and st.invite == "1" and U.isHost(st) then
-			pRows[#pRows + 1] = K.gap(1, 4)
-			pRows[#pRows + 1] = K.row { K.btn(T("Inviter des amis Steam", "Invite Steam friends"), nil, requestInvite, true) }
-		end
-		rows[#rows + 1] = K.sfCard("card", pRows, K.CARD_W, { 8, 10, 8, 10 })
+		rows[#rows + 1] = K.sfCard("card", pRows, cardW, { 8, 12, 8, 12 })
 
-		-- Compact Action Strip (Resync + Map Pings)
-		local actionBtns = {}
+		-- Card 3: Compact Action Strip (Resync left, Map Pings right)
+		local leftBtn = nil
 		local canResync = os.getenv("MPFEVER_RESYNCBUTTON") ~= "0" and st and st.started == "1" and U.isHost(st)
 		if canResync then
 			local left = tonumber(st.resyncin) or 0
@@ -413,90 +593,100 @@ function SF.applySession(U, C, deps)
 			elseif playerCount(st) < 2 then note = T("Aucun autre joueur à resynchroniser.", "No other player to resynchronise.")
 			elseif left > 0 then note = sfTf("Possible dans %s s (une toutes les 2 min).", "Available in %s s (one every 2 min).", math.ceil(left))
 			else note, enabled = sfT("Recharger votre partie chez tous les joueurs (~1 min).", "Reload your game on every player's PC (~1 min)."), true end
-			actionBtns[#actionBtns + 1] = K.btn(sfT("Resync", "Resync"), note or sFull, function()
+			leftBtn = K.btn(sfT("Resync", "Resync"), note or sFull, function()
 				if U.menuRequest("resync") then
 					U.resyncAskedAt = os.clock()
 					U.winChanged()
 				end
-			end, true, enabled)
+			end, enabled, enabled)
 		end
 
-		if st and st.started == "1" and os.getenv("MPFEVER_PINGS") ~= "0" then
-			if #actionBtns > 0 then actionBtns[#actionBtns + 1] = K.gap(6, 1) end
+		local pingBtns = {}
+		local showPings = st and st.started == "1" and os.getenv("MPFEVER_PINGS") ~= "0"
+		if showPings then
 			local pings = {
 				{ k = "here", label = T("Ici", "Here"), tip = sfT("Signal « Ici » sur la carte (12 s)", "Ping « Here » on map (12 s)") },
 				{ k = "warn", label = sfT("Att.", "Warn"), tip = sfT("Signal « Attention » sur la carte (12 s)", "Ping « Watch out » on map (12 s)") },
 				{ k = "build", label = sfT("Const.", "Build"), tip = sfT("Signal « Construire ici » sur la carte (12 s)", "Ping « Build here » on map (12 s)") },
 			}
 			for i, pg in ipairs(pings) do
-				if i > 1 then actionBtns[#actionBtns + 1] = K.gap(4, 1) end
+				if i > 1 then pingBtns[#pingBtns + 1] = K.gap(4, 1) end
 				local kind = pg.k
-				actionBtns[#actionBtns + 1] = K.btn(pg.label, pg.tip, function()
+				pingBtns[#pingBtns + 1] = K.btn(pg.label, pg.tip, function()
 					sendLine("ping_arm", { k = kind })
 					U.pingArmedAt = os.clock()
 					U.winChanged()
 				end)
 			end
 			if U.lastPing then
-				actionBtns[#actionBtns + 1] = K.gap(4, 1)
-				actionBtns[#actionBtns + 1] = K.btn(sfT("Dern.", "Last"), sfT("Voir le dernier signal sur la carte", "Show last ping on map"), function()
+				pingBtns[#pingBtns + 1] = K.gap(4, 1)
+				pingBtns[#pingBtns + 1] = K.btn(sfT("Dern.", "Last"), sfT("Voir le dernier signal sur la carte", "Show last ping on map"), function()
 					local x = U.lastPing
 					pcall(function() api.gui.camera.focusPosition(api.type.Vec3f.new(x.x, x.y, x.z or 0), 400) end)
 				end)
 			end
 		end
 
-		if #actionBtns > 0 then
+		if leftBtn or #pingBtns > 0 then
 			rows[#rows + 1] = K.gap(1, 6)
-			local stripRows = { K.row(actionBtns) }
-			if U.pingArmedAt and os.clock() - U.pingArmedAt < 15 then
-				stripRows[#stripRows + 1] = K.text(T("Cliquez sur la carte pour placer le signal (15 s).", "Click on the map to place the signal (15 s)."), nil, "warning", W)
+			local pingsW = showPings and (U.lastPing and 210 or 156) or 0
+			local stripRow = {}
+			if leftBtn then
+				stripRow[#stripRow + 1] = hBox(K, { leftBtn }, math.max(90, W - pingsW))
+			elseif #pingBtns > 0 then
+				stripRow[#stripRow + 1] = hBox(K, { K.muted(sfT("Signaux", "Signals"), W - pingsW - 4) }, math.max(70, W - pingsW))
 			end
-			rows[#rows + 1] = K.sfCard("sunken", stripRows, K.CARD_W, { 7, 8, 7, 8 })
+			for _, pn in ipairs(pingBtns) do stripRow[#stripRow + 1] = pn end
+			local stripRows = { K.row(stripRow) }
+			if U.pingArmedAt and os.clock() - U.pingArmedAt < 15 then
+				stripRows[#stripRows + 1] = K.colored(T("Cliquez sur la carte pour placer le signal (15 s).", "Click on the map to place the signal (15 s)."), K.color("Warning"), W)
+			end
+			rows[#rows + 1] = K.sfCard("sunken", stripRows, cardW, { 7, 12, 7, 12 })
 		end
 
 		return rows
 	end
 
-	-- Compact 420px Chat Tab (Hub keeps original Chat layout)
+	-- Compact 416px Chat Tab (Hub keeps original Chat layout)
 	local origChatBody = U.chatBody
 	U.chatBody = function(K, st, chat, ctx)
 		if K.hub() or U.hubDrawing then return origChatBody(K, st, chat, ctx) end
 		local builtin = K.builtin
-		local W = K.TEXT_W
-		local TIME_W, NAME_W = 42, 86
-		local MSG_W = math.max(160, W - TIME_W - NAME_W - 6)
+		local W = K.WIN_W
+		local innerW = W - 20
+		local TIME_W, NAME_W = 40, 84
+		local MSG_W = math.max(160, innerW - TIME_W - NAME_W - 10)
 		local me = myChatName()
 		local function height(m)
 			if m.kind == "msg" then return math.max(1, math.ceil(U.textWidth(m.text) / 34), math.ceil(U.textWidth(m.name .. ":") / 11)) end
 			if m.kind == "unsent" then return math.max(1, math.ceil((U.textWidth(m.text) + 32) / 44)) end
 			return 1
 		end
-		local pick, budget = {}, 11
+		local pick, budget = {}, 9
 		for i = #chat, 1, -1 do
 			local h = height(chat[i])
 			if h > budget and #pick > 0 then break end
 			budget = budget - h
 			table.insert(pick, 1, chat[i])
 		end
-		local rows = {}
-		if #chat == 0 then rows[#rows + 1] = K.muted(T("Aucun message pour l'instant.", "No messages yet."), W) end
+		local msgRows = {}
+		if #chat == 0 then msgRows[#msgRows + 1] = K.muted(T("Aucun message pour l'instant.", "No messages yet."), innerW) end
 		for _, m in ipairs(pick) do
 			local time = U.hhmm(m.t)
 			if m.kind == "join" then
-				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s a rejoint", "%s joined", m.name), W)
+				msgRows[#msgRows + 1] = K.muted(time .. "  " .. sfTf("%s a rejoint", "%s joined", m.name), innerW)
 			elseif m.kind == "left" then
-				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s a quitté", "%s left", m.name), W)
+				msgRows[#msgRows + 1] = K.muted(time .. "  " .. sfTf("%s a quitté", "%s left", m.name), innerW)
 			elseif m.kind == "away" then
-				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s hors ligne (pause)", "%s lost connection", m.name), W)
+				msgRows[#msgRows + 1] = K.muted(time .. "  " .. sfTf("%s hors ligne (pause)", "%s lost connection", m.name), innerW)
 			elseif m.kind == "back" then
-				rows[#rows + 1] = K.muted(time .. "  " .. sfTf("%s de retour", "%s is back", m.name), W)
+				msgRows[#msgRows + 1] = K.muted(time .. "  " .. sfTf("%s de retour", "%s is back", m.name), innerW)
 			elseif m.kind == "unsent" then
-				rows[#rows + 1] = K.row { K.muted(time, TIME_W), K.text(sfT("Non envoyé : ", "Not sent: ") .. m.text, nil, "error", W - TIME_W) }
+				msgRows[#msgRows + 1] = K.row { hBox(K, { K.muted(time, TIME_W) }, TIME_W), K.colored(sfT("Non envoyé : ", "Not sent: ") .. m.text, K.color("Error"), innerW - TIME_W) }
 			else
-				rows[#rows + 1] = K.row {
-					K.muted(time, TIME_W),
-					K.colored(m.name .. ":", K.color(m.name == me and "Ok" or "AccentVeryLight"), NAME_W),
+				msgRows[#msgRows + 1] = K.row {
+					hBox(K, { K.muted(time, TIME_W) }, TIME_W),
+					hBox(K, { K.colored(m.name .. ":", K.color(m.name == me and "Ok" or "AccentVeryLight"), NAME_W) }, NAME_W),
 					K.gap(6, 1),
 					K.text(m.text, nil, nil, MSG_W),
 				}
@@ -508,11 +698,11 @@ function SF.applySession(U, C, deps)
 				ctx.chatGen:set(ctx.chatGen:old() + 1)
 			end
 		end
-		rows[#rows + 1] = K.gap(1, 8)
-		rows[#rows + 1] = K.row {
+		local msgBox = K.box(msgRows, { size = { W, K.BODY_H - 42 }, padding = { 8, 10, 8, 10 }, background = SF.PALETTE.BaseDark }, K.V)
+		local inputRow = K.row {
 			builtin.TextInputField {
 				meta = { class = "font-scale-body", localKey = "mpfever-chat-input-" .. tostring(ctx.chatGen:old()),
-					styleSheet = K.style { size = { math.max(220, W - 84), 32 } } },
+					styleSheet = K.style { size = { math.max(220, W - 82), 32 } } },
 				value = "",
 				placeholderText = T("Écrire un message…", "Write a message…"),
 				maxLength = 300,
@@ -523,7 +713,7 @@ function SF.applySession(U, C, deps)
 			K.gap(6, 1),
 			K.btn(T("Envoyer", "Send"), nil, function() send(ctx.draft:old()) end, true),
 		}
-		return rows
+		return { msgBox, K.gap(1, 8), inputRow }
 	end
 
 	-- Clean SwiftFever Settings Tab (no upstream Discord button, clean fork credit)

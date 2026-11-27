@@ -166,6 +166,7 @@ namespace MPFever
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
             Cursor = Cursors.Hand;
+            Margin = Padding.Empty;
             ResetFont();
             Height = Theme.S(kind == ButtonKind.Ghost ? 30 : 38);
             UseVisualStyleBackColor = false;
@@ -398,24 +399,44 @@ namespace MPFever
             g.SmoothingMode = SmoothingMode.AntiAlias;
             int tx = Theme.S(24);
             var flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, ForkBrand.AppName, titleFont, new Point(tx, Height / 2 - Theme.S(23)), Theme.Text, flags);
-            int tw = TextRenderer.MeasureText(ForkBrand.AppName, titleFont, Size.Empty, flags).Width;
-            int bx = tx + tw + Theme.S(10), cy = Height / 2 - Theme.S(11);
-            bx = BadgeLeft(g, version, bx, cy, Theme.Muted, ForkBrand.PillBg) + Theme.S(6);
-            if (role != "") BadgeLeft(g, role, bx, cy, roleColor, Theme.Mix(Theme.Bg, roleColor, 0.16f));
-            TextRenderer.DrawText(g, subtitle, subFont, new Point(tx, Height / 2 + Theme.S(5)), Theme.Muted, flags);
+            var titleSize = TextRenderer.MeasureText(ForkBrand.AppName, titleFont, Size.Empty, flags);
+            var subSize = TextRenderer.MeasureText(subtitle, subFont, Size.Empty, flags);
+            int blockH = titleSize.Height + Theme.S(2) + subSize.Height;
+            int titleY = (Height - blockH) / 2;
+            int subY = titleY + titleSize.Height + Theme.S(2);
+            TextRenderer.DrawText(g, ForkBrand.AppName, titleFont, new Point(tx, titleY), Theme.Text, flags);
+            TextRenderer.DrawText(g, subtitle, subFont, new Point(tx, subY), Theme.Muted, flags);
+
+            int bx = tx + titleSize.Width + Theme.S(12);
+            int cy = titleY + (int)Math.Round(titleSize.Height * 0.56);
+            bx = BadgeLeft(g, version, bx, cy, Theme.Muted, ForkBrand.PillBg, Color.Transparent, false) + Theme.S(6);
+            if (role != "")
+                BadgeLeft(g, role, bx, cy, roleColor, Theme.Mix(Theme.Bg, roleColor, 0.16f), Theme.Mix(Theme.Bg, roleColor, 0.34f), true);
         }
 
         /// <summary>Pill starting at <paramref name="left"/>; returns its right edge.</summary>
-        int BadgeLeft(Graphics g, string text, int left, int cy, Color fore, Color fill)
+        int BadgeLeft(Graphics g, string text, int left, int cy, Color fore, Color fill, Color border, bool dot)
         {
             var size = TextRenderer.MeasureText(text, badgeFont, Size.Empty, TextFormatFlags.NoPadding);
-            int h = Theme.S(22), w = size.Width + Theme.S(18);
+            int h = Theme.S(20), dotD = Theme.S(6), dotGap = Theme.S(6);
+            int padH = Theme.S(9);
+            int extraDot = dot ? (dotD + dotGap) : 0;
+            int w = padH + extraDot + size.Width + padH;
             var r = new Rectangle(left, cy - h / 2, w, h);
             using (var path = Theme.Round(r, h / 2f))
-            using (var b = new SolidBrush(fill))
-                g.FillPath(b, path);
-            TextRenderer.DrawText(g, text, badgeFont, r, fore, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            {
+                using (var b = new SolidBrush(fill)) g.FillPath(b, path);
+                if (border.A > 0) using (var pen = new Pen(border)) g.DrawPath(pen, path);
+            }
+            int textX = r.X + padH;
+            if (dot)
+            {
+                using (var b = new SolidBrush(fore))
+                    g.FillEllipse(b, textX, r.Y + (h - dotD) / 2f, dotD, dotD);
+                textX += dotD + dotGap;
+            }
+            var tr = new Rectangle(textX, r.Y, size.Width + Theme.S(2), h);
+            TextRenderer.DrawText(g, text, badgeFont, tr, fore, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             return r.Right;
         }
     }

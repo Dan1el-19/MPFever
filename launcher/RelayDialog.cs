@@ -22,7 +22,7 @@ namespace MPFever
         public RelayDialog()
         {
             var S = (Func<int, int>)Theme.S;
-            Text = "MPFever – " + T("Relais", "Relay");
+            Text = ForkBrand.AppName + " – " + T("Relais", "Relay");
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
             ShowInTaskbar = false;

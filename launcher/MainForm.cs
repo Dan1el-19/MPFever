@@ -724,6 +724,7 @@ namespace MPFever
             gameLabel.TextAlign = ContentAlignment.MiddleLeft;
             gameLabel.Font = Theme.Ui(8.5f);
             gameLabel.ForeColor = Theme.Faint;
+            gameLabel.Padding = new Padding(0, 0, S(12), 0);
 
             var creditFont = Theme.Ui(8.5f);
             var linkFont = Theme.Ui(8.5f, FontStyle.Underline);
@@ -750,10 +751,10 @@ namespace MPFever
             var baseCredit = MakeFooterLink(ForkBrand.BaseAuthorName, ForkBrand.BaseAuthorUrl, "github.com/dkdknight/MPFever");
 
             footer.Controls.Add(gameLabel);
-            footer.Controls.Add(baseCredit);
-            footer.Controls.Add(basedOn);
-            footer.Controls.Add(forkCredit);
             footer.Controls.Add(by);
+            footer.Controls.Add(forkCredit);
+            footer.Controls.Add(basedOn);
+            footer.Controls.Add(baseCredit);
 
             Controls.Add(body);
             Controls.Add(footer);
@@ -1366,11 +1367,12 @@ namespace MPFever
         void ShowLaunchControls()
         {
             bool player = !ServerMode && !autotest;
+            bool inSession = started || clients.Count > 0;
             busyBar.Visible = player && installing;
             launchBtn.Visible = player && waitingLaunch && !gameClosed;
             launchBtn.Enabled = !installing;
             autoLaunchBox.Visible = (ServerMode || ConnCardOn) && player && MenuModeDefault && (waitingLaunch || installing) && !gameClosed;
-            startBtn.Visible = !ServerMode && !gameClosed && !waitingLaunch && !installing;   // (a server starts its world by itself)
+            startBtn.Visible = !ServerMode && !gameClosed && !waitingLaunch && !installing && (ConnCardOn || !inSession);   // (a server starts its world by itself)
             againBtn.Visible = !ServerMode && gameClosed;
             // (0.7.4: no game yet, the speed controls (off until a session starts) leave the room to the launch button and its box;
             // with them the bar was too long and x2 and x4 went out of it)
@@ -3674,7 +3676,14 @@ namespace MPFever
             AuditSnapshot();
             if (menuMode) MenuStatus();
             UpdateDashboard();
-            if (relay == null) { if (clients.Count > 0) status.Text = T("Client connecté", "Connected to the host"); return; }
+            if (relay == null)
+            {
+                bool inSession = clients.Count > 0;
+                if (inSession) status.Text = T("Client connecté", "Connected to the host");
+                bool clientStartVis = !ServerMode && !gameClosed && !waitingLaunch && !installing && (ConnCardOn || !inSession);
+                if (startBtn.Visible != clientStartVis) { startBtn.Visible = clientStartVis; header?.PerformLayout(); }
+                return;
+            }
             int n; lock (players) n = players.Count;
             string sp; lock (sessionGate) sp = pauseAt.HasValue ? T("pause", "paused") : "x" + speed;
             string spread = "";
@@ -3683,6 +3692,8 @@ namespace MPFever
                 ? F("{0} · {1} jeu(x){2} · actions {3} (refus {4}, échecs {5}) · {6}", "{0} · {1} game(s){2} · actions {3} (refused {4}, failed {5}) · {6}", sp, n, spread, actsRelayed, actRefused, actFails, syncText)
                 : F("{0} jeu(x) prêt(s) – chargez la même sauvegarde partout puis « Démarrer »", "{0} game(s) ready – load the same savegame everywhere, then « Start »", n);
             startBtn.Enabled = !started;
+            bool startVis = !ServerMode && !gameClosed && !waitingLaunch && !installing && (ConnCardOn || !started);
+            if (startBtn.Visible != startVis) { startBtn.Visible = startVis; header?.PerformLayout(); }
             pauseBtn.Enabled = x1Btn.Enabled = x2Btn.Enabled = x4Btn.Enabled = started;
             detBtn.Enabled = true;
         }

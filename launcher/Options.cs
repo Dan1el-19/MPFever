@@ -243,7 +243,7 @@ namespace MPFever
         public OptionsDialog(bool guest)
         {
             var S = (Func<int, int>)Theme.S;
-            Text = "MPFever – " + T("Réglages", "Settings");
+            Text = ForkBrand.AppName + " – " + T("Réglages", "Settings");
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             ShowInTaskbar = false;
@@ -319,8 +319,8 @@ namespace MPFever
             foreach (var r in expertRows) r.Visible = false;
             showExpert.CheckedChanged += (s, e) => { foreach (var r in expertRows) r.Visible = showExpert.Checked; };
 
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(56), FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Padding = new Padding(S(14), S(10), S(14), S(10)) };
-            var close = new ModernButton(ButtonKind.Primary) { Text = T("Fermer", "Close") };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(60), FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Padding = new Padding(S(14), S(11), S(14), S(11)) };
+            var close = new ModernButton(ButtonKind.Primary) { Text = T("Fermer", "Close"), Margin = Padding.Empty };
             close.Fit(40);
             close.Click += (s, e) => Close();
             var reset = new ModernButton(ButtonKind.Secondary) { Text = T("Valeurs par défaut", "Default values") };

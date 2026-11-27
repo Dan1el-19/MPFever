@@ -20,7 +20,7 @@ namespace MPFever
         public ThanksDialog()
         {
             var S = (Func<int, int>)Theme.S;
-            Text = "MPFever";
+            Text = ForkBrand.AppName;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             ShowInTaskbar = false;
@@ -31,7 +31,7 @@ namespace MPFever
             var icon = Theme.AppIcon();
             if (icon != null) Icon = icon;
             HandleCreated += (s, e) => Theme.DarkTitleBar(Handle);
-            ClientSize = new Size(S(780), S(250));
+            ClientSize = new Size(S(800), S(260));
 
             var card = new Card { Dock = DockStyle.Fill, Padding = new Padding(S(22), S(18), S(22), S(18)) };
             var title = new Label { Text = T("Merci d'avoir joué avec MPFever !", "Thanks for playing with MPFever!"), AutoSize = false, Height = S(34), Font = Theme.Semibold(13f), ForeColor = Theme.Text };
@@ -47,11 +47,14 @@ namespace MPFever
             var nexus = Btn(ButtonKind.Secondary, T("Avis sur Nexus", "Rate on Nexus"), () => Open(NexusUrl));
             var github = Btn(ButtonKind.Secondary, T("Étoile sur GitHub", "Star on GitHub"), () => Open(GitHubUrl));
             var report = Btn(ButtonKind.Secondary, T("Signaler un problème", "Report a problem"), () => DialogResult = DialogResult.Retry);
-            var links = Row(S(40), FlowDirection.LeftToRight, kofi, discord, nexus, github, report);
+            var links = Row(S(42), FlowDirection.LeftToRight, kofi, discord, nexus, github, report);
 
             var close = Btn(ButtonKind.Secondary, T("Fermer", "Close"), () => DialogResult = DialogResult.Cancel);
+            close.Margin = Padding.Empty;
             var quit = Btn(ButtonKind.Ghost, T("Tout fermer", "Quit MPFever"), () => DialogResult = DialogResult.Abort);
-            var bottom = Row(S(40), FlowDirection.RightToLeft, close, quit);
+            quit.Height = S(38);
+            quit.Margin = new Padding(0, 0, S(8), 0);
+            var bottom = Row(S(42), FlowDirection.RightToLeft, close, quit);
             bottom.Dock = DockStyle.Bottom;
 
             card.Controls.Add(bottom);
@@ -64,7 +67,7 @@ namespace MPFever
 
         static ModernButton Btn(ButtonKind kind, string label, Action click)
         {
-            var b = new ModernButton(kind) { Text = label };
+            var b = new ModernButton(kind) { Text = label, Height = Theme.S(38) };
             b.Fit();
             b.Margin = new Padding(0, 0, Theme.S(8), 0);
             b.Click += (s, e) => click();
@@ -73,7 +76,7 @@ namespace MPFever
 
         static FlowLayoutPanel Row(int height, FlowDirection dir, params Control[] items)
         {
-            var p = new FlowLayoutPanel { Height = height, FlowDirection = dir, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
+            var p = new FlowLayoutPanel { Height = height, FlowDirection = dir, WrapContents = false, Margin = Padding.Empty, Padding = new Padding(0, Theme.S(2), 0, Theme.S(2)) };
             p.Controls.AddRange(items);
             return p;
         }
