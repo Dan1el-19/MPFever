@@ -1,6 +1,11 @@
 MPFever - Changelog
 ===================
 
+0.9.7.1 - 2026-11-27: SwiftFever release (Midnight Cobalt launcher, ultra-compact in-game HUD, build 40444 support, GitHub Releases auto-update)
+  - UI (SwiftFever): Midnight Cobalt Neo-Minimalist Bento launcher, new Cobalt SF icon, unified header with optical pill alignment, clean footer attribution (by Dan1el-19 based on dkdknight), and aligned modal dialog buttons.
+  - IN-GAME HUD (SwiftFever): 416px ultra-compact Midnight Cobalt overlay with native ToggleButtonGroup tabs and speed controls, right-aligned FPS/Pace metrics, auto-height Session view, readable disabled Resync, and toast-free chat (ChatToast disabled by default; MPFEVER_SWIFTUI=0 / MPFEVER_CHATTOAST=1 opt-outs).
+  - RELEASES & AUTO-UPDATE: automated GitHub Releases workflow on Dan1el-19/SwiftFever publishing MPFever-0.9.7.1.zip, server archive, relay binaries, and SHA256SUMS.txt; works with Transport Fever 3 build 40444.
+
 0.9.7 - 2026-11-24: a mod's bus stop no longer crashes the host (#482), Town Transit Planner's street pieces are no longer refused (#487), and a big report keeps every action of the session (#473)
   - FIX (#482 #483, magnu and williamcolberg): the host's game stopped twice in one evening when williamcolberg placed a stop of
     the Traditional Bus Stops mod ("Assertion '!mil.fatInstances.empty() || !mil.thinInstances.empty()'", CalcBoundingBox). Both

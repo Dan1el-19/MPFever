@@ -1,0 +1,212 @@
+name: SwiftFever Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark GitHub Release as a pre-release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Lua for the tests
+        run: python -m pip install lupa==2.8
+
+      - name: Build, test, pack
+        shell: pwsh
+        run: |
+          cmd /c build.bat 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path build.bat -Pattern '^set "VERSION=([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Upload game archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: swiftfever-game-${{ steps.version.outputs.version }}
+          path: |
+            release/MPFever-${{ steps.version.outputs.version }}.zip
+            release/MPFever-${{ steps.version.outputs.version }}-server.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-relay:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path build.bat -Pattern '^set "VERSION=([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Publish Windows relay (x64)
+        run: dotnet publish relay/MPFeverRelay.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts/windows
+
+      - name: Test published relay
+        run: artifacts/windows/mpfever-relay.exe --selftest
+
+      - name: Pack Windows relay
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          $f = "Relay-MPFever-$v-win-x64.zip"
+          New-Item -ItemType Directory -Force release/MPFever-Relay | Out-Null
+          Copy-Item artifacts/windows/mpfever-relay.exe, docs/RELAY.md release/MPFever-Relay/
+          Compress-Archive -Path release/MPFever-Relay -DestinationPath "release/$f"
+
+      - name: Upload Windows relay
+        uses: actions/upload-artifact@v7
+        with:
+          name: swiftfever-relay-win-${{ steps.version.outputs.version }}
+          path: release/Relay-MPFever-${{ steps.version.outputs.version }}-win-x64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Version
+        id: version
+        run: echo "version=$(sed -n 's/^set "VERSION=\([^"]*\)".*/\1/p' build.bat | tr -d '\r')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Linux relay (x64)
+        run: dotnet publish relay/MPFeverRelay.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -o artifacts/linux
+
+      - name: Test published relay
+        run: artifacts/linux/mpfever-relay --selftest
+
+      - name: Pack Linux relay
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          f="Relay-MPFever-$v-linux-x64.tar.gz"
+          mkdir -p release/MPFever-Relay
+          cp artifacts/linux/mpfever-relay docs/RELAY.md release/MPFever-Relay/
+          tar -czf "release/$f" -C release MPFever-Relay
+
+      - name: Upload Linux relay
+        uses: actions/upload-artifact@v7
+        with:
+          name: swiftfever-relay-linux-${{ steps.version.outputs.version }}
+          path: release/Relay-MPFever-${{ steps.version.outputs.version }}-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [build, windows-relay, linux-relay]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Verify archives and compute SHA-256
+        run: |
+          v="${{ needs.build.outputs.version }}"
+          test -f "dist/MPFever-${v}.zip"
+          test -f "dist/MPFever-${v}-server.zip"
+          test -f "dist/Relay-MPFever-${v}-win-x64.zip"
+          test -f "dist/Relay-MPFever-${v}-linux-x64.tar.gz"
+          (cd dist && sha256sum "MPFever-${v}.zip" "MPFever-${v}-server.zip" "Relay-MPFever-${v}-win-x64.zip" "Relay-MPFever-${v}-linux-x64.tar.gz" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Prepare release notes
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, textwrap
+          from pathlib import Path
+
+          v = os.environ["VERSION"]
+          sums = Path("dist/SHA256SUMS.txt").read_text(encoding="utf-8").strip()
+          body = textwrap.dedent(f"""\
+          ## SwiftFever {v}
+
+          Performance-optimized multiplayer fork of [MPFever](https://github.com/dkdknight/MPFever) featuring the Midnight Cobalt Bento launcher, ultra-compact in-game HUD, and `Private Fast` sync tuning.
+
+          ### Downloads
+          - **`MPFever-{v}.zip`** — Main package for players (extract and run `MPFever.exe`).
+          - **`MPFever-{v}-server.zip`** — Dedicated server edition (`start-server.bat`).
+          - **`Relay-MPFever-{v}-win-x64.zip` / `Relay-MPFever-{v}-linux-x64.tar.gz`** — Optional standalone relay binaries.
+
+          ### Compatibility & Auto-Update
+          - Compatible with **Transport Fever 3 build 40444** (as well as builds 40425, 40423, and 40420).
+          - Existing **SwiftFever** / fork launchers check `Dan1el-19/SwiftFever/releases` and offer automatic in-place updates cleanly.
+
+          ### SHA-256 Checksums
+          ```
+          """)
+          notes = body + sums + "\n```\n\n---\nLicensed under **GPL-3.0-or-later** · **by Dan1el-19 based on dkdknight**.\n"
+          Path("notes.md").write_text(notes, encoding="utf-8")
+          PY
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v${VERSION}"
+          fi
+          echo "Publishing release ${TAG} for SwiftFever ${VERSION} (prerelease=${PRERELEASE})"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release edit "$TAG" --title "SwiftFever ${VERSION}" --notes-file notes.md --prerelease
+            else
+              gh release edit "$TAG" --title "SwiftFever ${VERSION}" --notes-file notes.md --prerelease=false --latest
+            fi
+          else
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "${{ github.sha }}" --prerelease
+            else
+              gh release create "$TAG" dist/* --title "SwiftFever ${VERSION}" --notes-file notes.md --target "${{ github.sha }}" --latest
+            fi
+          fi
